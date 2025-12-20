@@ -1,0 +1,300 @@
+# VixSrc Video Downloader
+
+A Python tool to download videos from vixsrc.to using TMDB (The Movie Database) IDs.
+
+## ⚠️ Legal Notice
+
+**This tool is for educational purposes only.** Only download content you have legal rights to access. Downloading copyrighted material without permission may violate copyright laws in your jurisdiction.
+
+## Features
+
+- Download movies and TV show episodes using TMDB IDs
+- **Auto-generate descriptive filenames** from TMDB metadata (e.g., `Fight.Club.1999.mp4` or `Breaking.Bad.S04E04.Ozymandias.mp4`)
+- **Cloudflare bypass** using cloudscraper for reliable access
+- Supports both yt-dlp and ffmpeg for downloading
+- Quality selection (best/worst/720p/1080p)
+- Language/audio track selection (with automatic preference for selected language)
+- Simple command-line interface
+- Option to just retrieve the playlist URL without downloading
+
+## Requirements
+
+- Python 3.7+
+- One of the following:
+  - `yt-dlp` (recommended) - `pip install yt-dlp`
+  - `ffmpeg` - Available in most package managers
+
+## Installation
+
+1. Make the script executable:
+```bash
+chmod +x vixsrc_downloader.py
+```
+
+2. Install required Python packages:
+```bash
+pip install -r requirements.txt --break-system-packages
+```
+
+3. Install a downloader (choose one):
+```bash
+# Option 1: yt-dlp (recommended)
+pip install yt-dlp --break-system-packages
+
+# Option 2: ffmpeg (alternative)
+sudo apt-get install ffmpeg  # Debian/Ubuntu
+sudo yum install ffmpeg       # CentOS/RHEL
+brew install ffmpeg           # macOS
+```
+
+4. **(Optional but Recommended)** Set up TMDB API key for enhanced filenames:
+
+   a. Get a free API key from [TMDB](https://www.themoviedb.org/settings/api):
+      - Create a free account at themoviedb.org
+      - Go to Settings → API
+      - Request an API key (choose "Developer" option)
+      - Copy your API key (v3 auth)
+
+   b. Set the API key as an environment variable:
+   ```bash
+   # Linux/macOS (add to ~/.bashrc or ~/.zshrc for persistence)
+   export TMDB_API_KEY="your_api_key_here"
+
+   # Or pass it directly when running
+   python3 vixsrc_downloader.py --movie 550 --tmdb-api-key "your_api_key_here"
+   ```
+
+   Without the API key, the tool will still work but will use basic filenames like `movie_550.mp4` instead of `Fight.Club.1999.mp4`.
+
+## Usage
+
+### Finding TMDB IDs
+
+You can find TMDB IDs at [themoviedb.org](https://www.themoviedb.org/):
+
+1. Search for your movie or TV show
+2. The ID is in the URL: `https://www.themoviedb.org/movie/550` → ID is **550**
+
+### Download a Movie
+
+```bash
+# Basic usage (with TMDB API key set, auto-generates filename: Fight.Club.1999.mp4)
+python3 vixsrc_downloader.py --movie 550
+
+# Specify custom output filename
+python3 vixsrc_downloader.py --movie 550 --output fight_club.mp4
+
+# With quality selection
+python3 vixsrc_downloader.py --movie 550 --quality 1080
+
+# With specific language/audio track
+python3 vixsrc_downloader.py --movie 550 --lang es
+
+# Without metadata (uses basic filename: movie_550.mp4)
+python3 vixsrc_downloader.py --movie 550 --no-metadata
+```
+
+### Download a TV Show Episode
+
+```bash
+# Download Breaking Bad S04E04 (auto-generates filename: Breaking.Bad.S04E04.Ozymandias.mp4)
+python3 vixsrc_downloader.py --tv 60625 --season 4 --episode 4
+
+# Specify custom output filename
+python3 vixsrc_downloader.py --tv 60625 --season 4 --episode 4 --output bb_s04e04.mp4
+
+# Without metadata (uses basic filename: tv_60625_s04e04.mp4)
+python3 vixsrc_downloader.py --tv 60625 --season 4 --episode 4 --no-metadata
+```
+
+### Get Playlist URL Only
+
+```bash
+# Just print the HLS playlist URL without downloading
+python3 vixsrc_downloader.py --movie 550 --url-only
+```
+
+### Command-Line Options
+
+```
+usage: vixsrc_downloader.py [-h] (--movie TMDB_ID | --tv TMDB_ID)
+                             [--season N] [--episode N] [--output FILE]
+                             [--quality QUALITY] [--url-only] [--timeout SEC]
+                             [--lang LANG] [--tmdb-api-key KEY] [--no-metadata]
+
+optional arguments:
+  -h, --help            show this help message and exit
+  --movie TMDB_ID       TMDB ID for a movie
+  --tv TMDB_ID          TMDB ID for a TV show
+  --season N            Season number (required with --tv)
+  --episode N           Episode number (required with --tv)
+  --output FILE, -o FILE
+                        Output file path (default: auto-generated from TMDB)
+  --quality QUALITY, -q QUALITY
+                        Video quality: best/worst/720/1080 (default: best)
+  --url-only            Only print the playlist URL, don't download
+  --timeout SEC         Request timeout in seconds (default: 30)
+  --lang LANG           Language code for audio/subtitles (default: en)
+  --tmdb-api-key KEY    TMDB API key (or set TMDB_API_KEY env var)
+  --no-metadata         Disable TMDB metadata fetching for filenames
+```
+
+## Examples
+
+```bash
+# Download The Matrix (TMDB ID: 603) - auto-generates: The.Matrix.1999.mp4
+python3 vixsrc_downloader.py --movie 603
+
+# Download Game of Thrones S01E01 (TMDB ID: 1399) - auto-generates: Game.of.Thrones.S01E01.Winter.Is.Coming.mp4
+python3 vixsrc_downloader.py --tv 1399 --season 1 --episode 1
+
+# Download in 720p quality with auto-generated filename
+python3 vixsrc_downloader.py --movie 603 --quality 720
+
+# Get URL for use with another tool
+python3 vixsrc_downloader.py --movie 603 --url-only
+
+# Download with Spanish audio
+python3 vixsrc_downloader.py --movie 603 --lang es
+
+# Download with Italian audio and 720p quality
+python3 vixsrc_downloader.py --tv 1399 --season 1 --episode 1 --lang it --quality 720
+
+# Use custom filename instead of auto-generated
+python3 vixsrc_downloader.py --movie 603 --output my_custom_name.mp4
+```
+
+## Filename Formats
+
+When TMDB API key is configured, the tool automatically generates descriptive filenames:
+
+### Movies
+- **Format:** `Title.Year.mp4`
+- **Example:** `Fight.Club.1999.mp4`
+
+### TV Shows
+- **Format:** `Show.S##E##.Episode.mp4`
+- **Example:** `Breaking.Bad.S04E04.Ozymandias.mp4`
+
+Special characters that are invalid for filenames (`<>:"/\|?*`) are automatically removed, and the title is sanitized for filesystem compatibility.
+
+**Note:** If no TMDB API key is set or `--no-metadata` is used, basic filenames will be used:
+- Movies: `movie_{tmdb_id}.mp4` (e.g., `movie_550.mp4`)
+- TV Shows: `tv_{tmdb_id}_s{season}e{episode}.mp4` (e.g., `tv_60625_s04e04.mp4`)
+
+## How It Works
+
+1. **Metadata Fetching** (if TMDB API key set): Fetches movie/TV show metadata from TMDB API
+2. **URL Construction**: Builds the embed URL using TMDB ID
+3. **Cloudflare Bypass**: Uses cloudscraper to bypass Cloudflare protection
+4. **Page Parsing**: Fetches the embed page and extracts the HLS playlist URL with required parameters (h=1, lang, token, expires)
+5. **Filename Generation**: Creates descriptive filename from metadata or uses basic format
+6. **Download**: Uses yt-dlp or ffmpeg to download and merge the HLS stream into MP4
+
+## Troubleshooting
+
+### "Failed to get playlist URL"
+
+This usually means:
+- The content is not available on vixsrc.to
+- The page structure has changed (requires script update)
+- Network connectivity issues
+
+**Note:** The script now uses cloudscraper to automatically bypass Cloudflare protection, so this error should be rare.
+
+### "Neither yt-dlp nor ffmpeg found"
+
+Install one of the downloaders:
+```bash
+pip install yt-dlp --break-system-packages
+# or
+sudo apt-get install ffmpeg
+```
+
+### Download is very slow
+
+Try specifying a lower quality:
+```bash
+python3 vixsrc_downloader.py --movie 550 --quality 720
+```
+
+## Advanced Usage
+
+### Batch Downloads
+
+Create a script to download multiple episodes:
+
+```bash
+#!/bin/bash
+# download_season.sh - Download entire season
+
+TMDB_ID=1399  # Game of Thrones
+SEASON=1
+OUTPUT_DIR="got_season1"
+
+mkdir -p "$OUTPUT_DIR"
+
+for EPISODE in {1..10}; do
+    echo "Downloading S${SEASON}E${EPISODE}..."
+    python3 vixsrc_downloader.py \
+        --tv $TMDB_ID \
+        --season $SEASON \
+        --episode $EPISODE \
+        --output "$OUTPUT_DIR/got_s${SEASON}e${EPISODE}.mp4"
+done
+```
+
+### Using with MPV Player
+
+Play directly without downloading:
+
+```bash
+# Get the playlist URL
+URL=$(python3 vixsrc_downloader.py --movie 550 --url-only | grep "https://")
+
+# Play with mpv
+mpv "$URL"
+```
+
+## Technical Details
+
+### Architecture
+
+```
+vixsrc_downloader.py
+├── VixSrcDownloader class
+│   ├── get_movie_url()        - Construct movie embed URL
+│   ├── get_tv_url()           - Construct TV show embed URL
+│   ├── extract_playlist_url() - Parse embed page for HLS URL
+│   └── download_video()       - Download using yt-dlp/ffmpeg
+```
+
+### URL Pattern
+
+- Movies: `https://vixsrc.to/movie/{tmdb_id}?lang={lang}`
+- TV Shows: `https://vixsrc.to/tv/{tmdb_id}/{season}/{episode}?lang={lang}`
+- Playlist: `https://vixsrc.to/playlist/{id}?token=...&expires=...&h=1&lang={lang}`
+
+**Note:** The `h=1` parameter is required for the playlist URL to work correctly.
+
+### Language Codes
+
+The `--lang` parameter accepts ISO 639-1 language codes. Common examples:
+- `en` - English (default)
+- `es` - Spanish
+- `fr` - French
+- `de` - German
+- `it` - Italian
+- `pt` - Portuguese
+- `ja` - Japanese
+- `ko` - Korean
+
+Note: Language availability depends on the content provider.
+
+## License
+
+This is free and unencumbered software released into the public domain.
+
+## Disclaimer
+
+This tool is provided as-is for educational purposes. The authors are not responsible for any misuse of this tool. Always respect copyright laws and terms of service.

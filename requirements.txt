@@ -1,0 +1,4 @@
+requests>=2.31.0
+cloudscraper>=1.2.71
+yt-dlp>=2023.3.4
+tmdbsimple>=2.9.1
