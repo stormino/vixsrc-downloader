@@ -9,6 +9,8 @@ A Python tool to download videos from vixsrc.to using TMDB (The Movie Database) 
 ## Features
 
 - Download movies and TV show episodes using TMDB IDs
+- **Batch downloads** from a file with parallel processing support
+- **Real-time progress bars** showing download progress for each running task
 - **Auto-generate descriptive filenames** from TMDB metadata (e.g., `Fight.Club.1999.mp4` or `Breaking.Bad.S04E04.Ozymandias.mp4`)
 - **Cloudflare bypass** using cloudscraper for reliable access
 - Supports both yt-dlp and ffmpeg for downloading
@@ -107,6 +109,56 @@ python3 vixsrc_downloader.py --tv 60625 --season 4 --episode 4 --output bb_s04e0
 python3 vixsrc_downloader.py --tv 60625 --season 4 --episode 4 --no-metadata
 ```
 
+### Batch Downloads
+
+Download multiple movies and TV episodes from a file with real-time progress bars:
+
+```bash
+# Create a batch file (see example_batch.txt)
+cat > downloads.txt << 'EOF'
+# Movies
+movie 550 fight_club.mp4 en 1080
+movie 603 the_matrix.mp4 en 720
+
+# TV Shows
+tv 60625 4 1 - en 1080
+tv 60625 4 2 - en 1080
+EOF
+
+# Download all in sequence with progress bar
+python3 vixsrc_downloader.py --batch downloads.txt --output-dir ./videos
+
+# Download with 3 parallel jobs (shows 3 concurrent progress bars)
+python3 vixsrc_downloader.py --batch downloads.txt --output-dir ./videos --parallel 3
+```
+
+**Progress Bar Features:**
+- Each download shows its own progress bar with percentage and elapsed time
+- When using `--parallel`, multiple progress bars are displayed simultaneously
+- Progress bars show download status: queued → downloading → completed (✓) or failed (✗)
+- Clean display without verbose logging messages
+
+**Batch file format:**
+```
+type TMDB_ID [season] [episode] [output_file] [lang] [quality]
+```
+
+- Use `-` to skip optional parameters and use defaults
+- Lines starting with `#` are comments
+- Empty lines are ignored
+
+**Example batch file:**
+```
+# Breaking Bad Season 4
+tv 60625 4 1 - en 1080
+tv 60625 4 2 bb_s04e02.mp4 en
+tv 60625 4 3 - en 720
+
+# Movies
+movie 550 fight_club.mp4 en 1080
+movie 603 - en 720
+```
+
 ### Get Playlist URL Only
 
 ```bash
@@ -117,19 +169,23 @@ python3 vixsrc_downloader.py --movie 550 --url-only
 ### Command-Line Options
 
 ```
-usage: vixsrc_downloader.py [-h] (--movie TMDB_ID | --tv TMDB_ID)
+usage: vixsrc_downloader.py [-h] (--movie TMDB_ID | --tv TMDB_ID | --batch FILE)
                              [--season N] [--episode N] [--output FILE]
-                             [--quality QUALITY] [--url-only] [--timeout SEC]
-                             [--lang LANG] [--tmdb-api-key KEY] [--no-metadata]
+                             [--output-dir DIR] [--quality QUALITY] [--url-only]
+                             [--timeout SEC] [--lang LANG] [--tmdb-api-key KEY]
+                             [--no-metadata] [--parallel N]
 
 optional arguments:
   -h, --help            show this help message and exit
   --movie TMDB_ID       TMDB ID for a movie
   --tv TMDB_ID          TMDB ID for a TV show
+  --batch FILE          Batch download from file
   --season N            Season number (required with --tv)
   --episode N           Episode number (required with --tv)
   --output FILE, -o FILE
                         Output file path (default: auto-generated from TMDB)
+  --output-dir DIR, -d DIR
+                        Output directory for auto-generated filenames
   --quality QUALITY, -q QUALITY
                         Video quality: best/worst/720/1080 (default: best)
   --url-only            Only print the playlist URL, don't download
@@ -137,6 +193,7 @@ optional arguments:
   --lang LANG           Language code for audio/subtitles (default: en)
   --tmdb-api-key KEY    TMDB API key (or set TMDB_API_KEY env var)
   --no-metadata         Disable TMDB metadata fetching for filenames
+  --parallel N, -p N    Number of parallel downloads for batch mode (default: 1)
 ```
 
 ## Examples
@@ -220,28 +277,25 @@ python3 vixsrc_downloader.py --movie 550 --quality 720
 
 ## Advanced Usage
 
-### Batch Downloads
+### Batch File Generation
 
-Create a script to download multiple episodes:
+Generate a batch file for an entire season using a script:
 
 ```bash
 #!/bin/bash
-# download_season.sh - Download entire season
+# generate_season_batch.sh - Generate batch file for entire season
 
 TMDB_ID=1399  # Game of Thrones
 SEASON=1
-OUTPUT_DIR="got_season1"
+OUTPUT_FILE="season_${SEASON}.txt"
 
-mkdir -p "$OUTPUT_DIR"
-
+echo "# Game of Thrones Season $SEASON" > "$OUTPUT_FILE"
 for EPISODE in {1..10}; do
-    echo "Downloading S${SEASON}E${EPISODE}..."
-    python3 vixsrc_downloader.py \
-        --tv $TMDB_ID \
-        --season $SEASON \
-        --episode $EPISODE \
-        --output "$OUTPUT_DIR/got_s${SEASON}e${EPISODE}.mp4"
+    echo "tv $TMDB_ID $SEASON $EPISODE - en 1080" >> "$OUTPUT_FILE"
 done
+
+# Now download with batch mode
+python3 vixsrc_downloader.py --batch "$OUTPUT_FILE" --parallel 3 --output-dir "got_s${SEASON}"
 ```
 
 ### Using with MPV Player
@@ -267,6 +321,16 @@ vixsrc_downloader.py
 │   ├── get_tv_url()           - Construct TV show embed URL
 │   ├── extract_playlist_url() - Parse embed page for HLS URL
 │   └── download_video()       - Download using yt-dlp/ffmpeg
+├── TMDBMetadata class
+│   ├── get_movie_info()       - Fetch movie metadata from TMDB
+│   ├── get_tv_info()          - Fetch TV show metadata from TMDB
+│   ├── generate_movie_filename() - Generate descriptive movie filename
+│   └── generate_tv_filename() - Generate descriptive TV filename
+├── BatchDownloader class
+│   ├── parse_batch_file()     - Parse batch download file
+│   ├── process_single_download() - Process one download task
+│   └── download_batch()       - Execute batch downloads with parallel support
+└── DownloadTask dataclass     - Represents a single download task
 ```
 
 ### URL Pattern

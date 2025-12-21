@@ -66,10 +66,10 @@ if [ "$HAS_YTDLP" = false ] && [ "$HAS_FFMPEG" = false ]; then
     fi
 fi
 
-# Make scripts executable
+# Make script executable
 echo ""
-echo "[*] Making scripts executable..."
-chmod +x vixsrc_downloader.py batch_download.sh
+echo "[*] Making script executable..."
+chmod +x vixsrc_downloader.py
 
 echo ""
 echo "[+] Installation complete!"
@@ -87,6 +87,6 @@ echo "  ./vixsrc_downloader.py --movie 550 --output fight_club.mp4  # Custom fil
 echo "  ./vixsrc_downloader.py --help"
 echo ""
 echo "For batch downloads:"
-echo "  cp downloads.txt.example downloads.txt"
-echo "  # Edit downloads.txt with your content"
-echo "  ./batch_download.sh downloads.txt"
+echo "  # See example_batch.txt for format"
+echo "  ./vixsrc_downloader.py --batch downloads.txt --output-dir ./videos"
+echo "  ./vixsrc_downloader.py --batch downloads.txt --parallel 3  # 3 parallel downloads"
