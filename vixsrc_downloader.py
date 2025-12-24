@@ -492,6 +492,7 @@ class VixSrcDownloader:
 
         cmd = [
             'yt-dlp',
+            '-N 10',
             '--no-warnings',
             '--newline',
             '--progress',
@@ -517,7 +518,7 @@ class VixSrcDownloader:
                 progress_bar.set_description(f"Downloading {output.name}")
 
             # Parse yt-dlp output for progress
-            for line in process.stdout:
+            for line in process.stdout: # type: ignore
                 if progress_bar:
                     # Look for download progress patterns
                     # yt-dlp outputs like: [download]  45.2% of   1.23GiB at  2.34MiB/s ETA 00:25
@@ -712,7 +713,7 @@ class BatchDownloader:
                 if task.content_type == 'tv':
                     if self.tmdb_metadata and self.tmdb_metadata.api_key:
                         output_path = self.tmdb_metadata.generate_tv_filename(
-                            task.tmdb_id, task.season, task.episode
+                            task.tmdb_id, task.season, task.episode # type: ignore
                         )
                     else:
                         output_path = f"tv_{task.tmdb_id}_s{task.season:02d}e{task.episode:02d}.mp4"
