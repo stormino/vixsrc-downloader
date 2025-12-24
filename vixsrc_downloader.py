@@ -497,7 +497,6 @@ class VixSrcDownloader:
             '--progress',
             '-f', format_selector,
             '--merge-output-format', 'mp4',
-            '--recode-video', 'mp4',
             '--referer', self.BASE_URL,
             '--add-header', 'Accept: */*',
             '-o', str(output),
