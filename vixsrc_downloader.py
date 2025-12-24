@@ -69,6 +69,17 @@ except ImportError:
     subprocess.check_call([sys.executable, "-m", "pip", "install", "tqdm", "--break-system-packages"])
     from tqdm import tqdm
 
+try:
+    from rich.progress import Progress, BarColumn, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn, TimeElapsedColumn, TextColumn, TaskID
+    from rich.live import Live
+    from rich.console import Console
+except ImportError:
+    print("Error: 'rich' library not found. Installing...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "rich", "--break-system-packages"])
+    from rich.progress import Progress, BarColumn, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn, TimeElapsedColumn, TextColumn, TaskID
+    from rich.live import Live
+    from rich.console import Console
+
 
 def sanitize_filename(filename: str) -> str:
     """
@@ -442,7 +453,8 @@ class VixSrcDownloader:
         return self.extract_playlist_url(embed_url)
     
     def download_video(self, playlist_url: str, output_path: str,
-                       quality: str = 'best', progress_bar: Optional[tqdm] = None) -> bool:
+                       quality: str = 'best', progress_bar: Optional[tqdm] = None,
+                       rich_progress: Optional[tuple] = None) -> bool:
         """
         Download video from HLS playlist URL using yt-dlp or ffmpeg.
 
@@ -459,7 +471,7 @@ class VixSrcDownloader:
 
         # Try yt-dlp first (better at handling HLS)
         if self._check_command('yt-dlp'):
-            return self._download_with_ytdlp(playlist_url, output_path, quality, progress_bar) # type: ignore
+            return self._download_with_ytdlp(playlist_url, output_path, quality, progress_bar, rich_progress) # type: ignore
 
         # Fall back to ffmpeg
         elif self._check_command('ffmpeg'):
@@ -482,8 +494,16 @@ class VixSrcDownloader:
         except (subprocess.CalledProcessError, FileNotFoundError):
             return False
     
-    def _download_with_ytdlp(self, url: str, output: Path, quality: str, progress_bar: Optional[tqdm] = None) -> bool:
-        """Download using yt-dlp with progress tracking"""
+    def _download_with_ytdlp(self, url: str, output: Path, quality: str, progress_bar: Optional[tqdm] = None, rich_progress: Optional[tuple] = None) -> bool:
+        """Download using yt-dlp with progress tracking
+
+        Args:
+            url: Video URL
+            output: Output file path
+            quality: Quality setting
+            progress_bar: tqdm progress bar (for batch downloads)
+            rich_progress: Rich progress tuple (Progress, TaskID) for single downloads
+        """
 
         # Determine format selection based on quality
         if quality.isdigit():
@@ -496,9 +516,6 @@ class VixSrcDownloader:
         cmd = [
             'yt-dlp',
             '-N', str(self.ytdlp_concurrency),
-            '--no-warnings',
-            '--newline',
-            '--progress',
             '-f', format_selector,
             '--merge-output-format', 'mp4',
             '--referer', self.BASE_URL,
@@ -507,54 +524,165 @@ class VixSrcDownloader:
             url
         ]
 
-        try:
-            # Run yt-dlp and capture output for progress tracking
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                universal_newlines=True,
-                bufsize=1
-            )
+        # For batch downloads with progress tracking
+        if progress_bar or rich_progress:
+            # Use progress template for reliable parsing
+            cmd.extend([
+                '--newline',
+                '--no-warnings',
+                '--progress-template', 'download:PROGRESS:%(progress._percent_str)s'
+            ])
 
-            if progress_bar:
-                progress_bar.set_description(f"Downloading {output.name}")
+            try:
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True,
+                    bufsize=0,  # Unbuffered
+                    env={**os.environ, 'PYTHONUNBUFFERED': '1'}
+                )
 
-            # Parse yt-dlp output for progress
-            for line in process.stdout: # type: ignore
-                if progress_bar:
-                    # Look for download progress patterns
-                    # yt-dlp outputs like: [download]  45.2% of   1.23GiB at  2.34MiB/s ETA 00:25
-                    if '[download]' in line and '%' in line:
+                last_percent = 0.0
+                total_duration = None
+
+                for line in process.stdout: # type: ignore
+                    line = line.strip()
+                    if not line:
+                        continue
+
+                    # Try to extract total duration from ffmpeg output
+                    if 'Duration:' in line and total_duration is None:
+                        duration_match = re.search(r'Duration:\s*(\d{2}):(\d{2}):(\d{2}\.\d+)', line)
+                        if duration_match:
+                            hours, minutes, seconds = duration_match.groups()
+                            total_duration = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+
+                    # Parse ffmpeg progress line (frame=X time=HH:MM:SS.MS bitrate=X speed=X)
+                    if 'frame=' in line and 'time=' in line:
+                        time_match = re.search(r'time=(\d{2}):(\d{2}):(\d{2}\.\d+)', line)
+                        bitrate_match = re.search(r'bitrate=\s*(\d+\.?\d*)\s*([kmgt]?bits/s)', line, re.IGNORECASE)
+                        speed_match = re.search(r'speed=\s*(\d+\.?\d*)x', line)
+
+                        if time_match and total_duration:
+                            hours, minutes, seconds = time_match.groups()
+                            current_time = int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+                            percent = (current_time / total_duration) * 100
+
+                            if percent > last_percent and percent <= 100:
+                                # Update rich progress if provided
+                                if rich_progress:
+                                    progress_obj, task_id = rich_progress
+                                    # Extract bitrate and speed for display
+                                    bitrate_str = ""
+                                    if bitrate_match:
+                                        bitrate_val = bitrate_match.group(1)
+                                        bitrate_unit = bitrate_match.group(2)
+                                        bitrate_str = f"{bitrate_val}{bitrate_unit}"
+
+                                    speed_str = f"{speed_match.group(1)}x" if speed_match else ""
+
+                                    # Update with bitrate info
+                                    update_kwargs = {"completed": percent}
+                                    if bitrate_str:
+                                        update_kwargs["bitrate"] = bitrate_str
+
+                                    progress_obj.update(task_id, **update_kwargs)
+                                    last_percent = percent
+
+                                # Update tqdm progress if provided
+                                elif progress_bar:
+                                    progress_bar.update(percent - last_percent)
+                                    progress_bar.set_description(f"{output.name[:30]} {percent:.1f}%")
+                                    last_percent = percent
+
+                    # Also check for yt-dlp progress template (for non-HLS downloads)
+                    elif 'PROGRESS:' in line:
                         try:
-                            # Extract percentage
-                            match = re.search(r'(\d+\.?\d*)%', line)
-                            if match:
-                                percent = float(match.group(1))
-                                progress_bar.n = percent
-                                progress_bar.refresh()
-                        except:
+                            percent_match = re.search(r'PROGRESS:(\d+\.?\d*)%', line)
+                            if percent_match:
+                                percent = float(percent_match.group(1))
+
+                                if percent > last_percent:
+                                    # Update rich progress if provided
+                                    if rich_progress:
+                                        progress_obj, task_id = rich_progress
+                                        progress_obj.update(task_id, completed=percent)
+                                        last_percent = percent
+
+                                    # Update tqdm progress if provided
+                                    elif progress_bar:
+                                        progress_bar.update(percent - last_percent)
+                                        progress_bar.set_description(f"{output.name[:30]} {percent:.1f}%")
+                                        last_percent = percent
+                        except Exception:
                             pass
 
-            process.wait()
+                process.wait()
 
-            if process.returncode == 0:
+                if process.returncode == 0:
+                    # Ensure at 100%
+                    if rich_progress:
+                        progress_obj, task_id = rich_progress
+                        progress_obj.update(task_id, completed=100)
+                    elif progress_bar:
+                        if last_percent < 100:
+                            progress_bar.update(100 - last_percent)
+                        progress_bar.set_description(f"✓ {output.name[:30]}")
+                        progress_bar.refresh()
+                    return True
+                else:
+                    if progress_bar:
+                        progress_bar.set_description(f"✗ {output.name[:30]}")
+                        progress_bar.refresh()
+                    return False
+
+            except Exception as e:
                 if progress_bar:
-                    progress_bar.n = 100
-                    progress_bar.set_description(f"✓ {output.name}")
+                    progress_bar.set_description(f"✗ {output.name[:30]} - Error")
                     progress_bar.refresh()
-                return True
-            else:
-                if progress_bar:
-                    progress_bar.set_description(f"✗ {output.name}")
-                    progress_bar.refresh()
+                if not self.quiet:
+                    print(f"[DEBUG] Exception: {e}")
                 return False
 
-        except Exception as e:
-            if progress_bar:
-                progress_bar.set_description(f"✗ {output.name} - {str(e)}")
-                progress_bar.refresh()
-            return False
+        # For single downloads, let yt-dlp show its native progress bar
+        else:
+            # Add progress flags for terminal output
+            cmd.extend(['--progress', '--newline'])
+
+            try:
+                if not self.quiet:
+                    print(f"[*] Downloading with yt-dlp to: {output}\n")
+
+                # Run without capturing output so yt-dlp can show progress directly
+                subprocess.run(cmd, check=True)
+
+                if not self.quiet:
+                    print(f"\n[+] Download completed: {output}")
+                return True
+            except subprocess.CalledProcessError as e:
+                if not self.quiet:
+                    print(f"\n[!] Download failed: {e}")
+                return False
+
+    def _parse_size_to_bytes(self, size_str: str) -> int:
+        """Convert size string like '1.23GiB' to bytes"""
+        size_str = size_str.strip()
+        match = re.match(r'(\d+\.?\d*)\s*([KMGT]i?B)', size_str, re.IGNORECASE)
+        if not match:
+            return 0
+
+        value = float(match.group(1))
+        unit = match.group(2).upper()
+
+        # Binary units (GiB, MiB, etc.)
+        if 'I' in unit:
+            multipliers = {'KIB': 1024, 'MIB': 1024**2, 'GIB': 1024**3, 'TIB': 1024**4}
+        else:
+            # Decimal units (GB, MB, etc.)
+            multipliers = {'KB': 1000, 'MB': 1000**2, 'GB': 1000**3, 'TB': 1000**4}
+
+        return int(value * multipliers.get(unit, 1))
     
     def _download_with_ffmpeg(self, url: str, output: Path) -> bool:
         """Download using ffmpeg"""
@@ -677,7 +805,7 @@ class BatchDownloader:
 
     def process_single_download(self, task: DownloadTask, output_dir: Optional[str] = None,
                                 default_lang: str = 'en', default_quality: str = 'best',
-                                progress_bar: Optional[tqdm] = None) -> bool:
+                                progress_bar: Optional[tqdm] = None, rich_progress: Optional[tuple] = None) -> bool:
         """Process a single download task"""
 
         # Use task-specific settings or fall back to defaults
@@ -689,10 +817,31 @@ class BatchDownloader:
             self.downloader.lang = lang
 
         # Enable quiet mode if using progress bar
-        if progress_bar:
+        if progress_bar or rich_progress:
             self.downloader.quiet = True
 
         try:
+            # Fetch TMDB metadata and update progress description
+            task_description = str(task)
+            if self.tmdb_metadata and self.tmdb_metadata.api_key:
+                if task.content_type == 'tv':
+                    info = self.tmdb_metadata.get_tv_info(task.tmdb_id, task.season, task.episode) # type: ignore
+                    if info:
+                        task_description = f"{info['show_name']} S{info['season']:02d}E{info['episode']:02d}"
+                        if info.get('episode_name'):
+                            task_description += f" - {info['episode_name']}"
+                else:
+                    info = self.tmdb_metadata.get_movie_info(task.tmdb_id)
+                    if info and info.get('title'):
+                        task_description = f"{info['title']}"
+                        if info.get('year'):
+                            task_description += f" ({info['year']})"
+
+            # Update progress bar with actual title
+            if rich_progress:
+                progress_obj, task_id = rich_progress
+                progress_obj.update(task_id, description=f"[bold blue]{task_description}")
+
             # Get playlist URL (suppress output if progress bar is used)
             if task.content_type == 'tv':
                 playlist_url = self.downloader.get_playlist_url(task.tmdb_id, task.season, task.episode)
@@ -703,6 +852,9 @@ class BatchDownloader:
                 if progress_bar:
                     progress_bar.set_description(f"✗ {task} - Failed to get URL")
                     progress_bar.refresh()
+                elif rich_progress:
+                    progress_obj, task_id = rich_progress
+                    progress_obj.update(task_id, description=f"✗ {task_description} - Failed to get URL")
                 return False
 
             # Determine output path
@@ -731,7 +883,21 @@ class BatchDownloader:
                     output_path = os.path.join(output_dir, output_path)
 
             # Download the video
-            success = self.downloader.download_video(playlist_url, output_path, quality, progress_bar)
+            success = self.downloader.download_video(playlist_url, output_path, quality, progress_bar, rich_progress)
+
+            # Update final status
+            if rich_progress:
+                progress_obj, task_id = rich_progress
+                if success:
+                    progress_obj.update(task_id, description=f"✓ {task_description}")
+                else:
+                    progress_obj.update(task_id, description=f"✗ {task_description}")
+            elif progress_bar:
+                if success:
+                    progress_bar.set_description(f"✓ {task}")
+                else:
+                    progress_bar.set_description(f"✗ {task}")
+                progress_bar.refresh()
 
             return success
 
@@ -739,13 +905,16 @@ class BatchDownloader:
             if progress_bar:
                 progress_bar.set_description(f"✗ {task} - {str(e)}")
                 progress_bar.refresh()
+            elif rich_progress:
+                progress_obj, task_id = rich_progress
+                progress_obj.update(task_id, description=f"✗ {task_description} - {str(e)}")
             return False
 
     def download_batch(self, tasks: List[DownloadTask], output_dir: Optional[str] = None,
                       parallel_jobs: int = 1, default_lang: str = 'en',
                       default_quality: str = 'best') -> Tuple[int, int]:
         """
-        Download all tasks in batch with progress bars
+        Download all tasks in batch with Rich progress bars
 
         Returns:
             Tuple of (success_count, failed_count)
@@ -759,70 +928,60 @@ class BatchDownloader:
         success_count = 0
         failed_count = 0
 
-        print(f"\nVixSrc Batch Downloader - {total} tasks - {parallel_jobs} parallel jobs\n")
+        print(f"\nVixSrc Batch Downloader - {total} tasks - {parallel_jobs} parallel job(s)\n")
 
-        if parallel_jobs > 1:
-            # Parallel execution with multiple progress bars
-            # Create a progress bar for each parallel task
-            progress_bars = {}
+        # Use Rich Progress for all batch downloads
+        with Progress(
+            TextColumn("[bold blue]{task.description}", justify="left"),
+            BarColumn(bar_width=30),
+            "[progress.percentage]{task.percentage:>3.0f}%",
+            TextColumn("{task.fields[bitrate]}", justify="right"),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+        ) as progress:
 
-            with ThreadPoolExecutor(max_workers=parallel_jobs) as executor:
-                # Submit all tasks with their own progress bars
+            if parallel_jobs > 1:
+                # Parallel execution with multiple progress bars
+                task_ids = {}
                 future_to_task = {}
 
-                for task in tasks:
-                    # Create a progress bar for this task
-                    pbar = tqdm(
-                        total=100,
-                        desc=f"Queued: {task}",
-                        position=len(progress_bars),
-                        leave=True,
-                        bar_format='{desc}: {percentage:3.0f}%|{bar}| [{elapsed}]'
-                    )
-                    progress_bars[task] = pbar
+                with ThreadPoolExecutor(max_workers=parallel_jobs) as executor:
+                    # Submit all tasks with their own progress bars
+                    for task in tasks:
+                        # Create a Rich progress task with bitrate field
+                        task_id = progress.add_task(f"{task}", total=100, bitrate="")
+                        task_ids[task] = task_id
 
-                    future = executor.submit(
-                        self.process_single_download,
-                        task, output_dir, default_lang, default_quality, pbar
-                    )
-                    future_to_task[future] = task
+                        future = executor.submit(
+                            self.process_single_download,
+                            task, output_dir, default_lang, default_quality, None, (progress, task_id)
+                        )
+                        future_to_task[future] = task
 
-                # Process completed tasks
-                for future in as_completed(future_to_task):
-                    task = future_to_task[future]
-                    pbar = progress_bars[task]
+                    # Process completed tasks
+                    for future in as_completed(future_to_task):
+                        task = future_to_task[future]
 
-                    try:
-                        success = future.result()
-                        if success:
-                            success_count += 1
-                        else:
+                        try:
+                            success = future.result()
+                            if success:
+                                success_count += 1
+                            else:
+                                failed_count += 1
+                        except Exception as e:
                             failed_count += 1
-                    except Exception as e:
-                        pbar.set_description(f"✗ {task} - Exception: {str(e)}")
-                        pbar.refresh()
+
+            else:
+                # Sequential execution
+                for task in tasks:
+                    task_id = progress.add_task(f"{task}", total=100, bitrate="")
+
+                    success = self.process_single_download(task, output_dir, default_lang, default_quality, None, (progress, task_id))
+
+                    if success:
+                        success_count += 1
+                    else:
                         failed_count += 1
-                    finally:
-                        pbar.close()
-
-        else:
-            # Sequential execution with single progress bar
-            for task in tasks:
-                pbar = tqdm(
-                    total=100,
-                    desc=f"Processing: {task}",
-                    leave=True,
-                    bar_format='{desc}: {percentage:3.0f}%|{bar}| [{elapsed}]'
-                )
-
-                success = self.process_single_download(task, output_dir, default_lang, default_quality, pbar)
-
-                if success:
-                    success_count += 1
-                else:
-                    failed_count += 1
-
-                pbar.close()
 
         # Print summary
         print(f"\n{'='*60}")
@@ -1010,14 +1169,14 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
             os.makedirs(args.output_dir, exist_ok=True)
             output_path = os.path.join(args.output_dir, default_output)
 
-    # Download the video with progress bar
-    pbar = tqdm(
-        total=100,
-        desc=f"Downloading",
-        bar_format='{desc}: {percentage:3.0f}%|{bar}| [{elapsed}]'
-    )
-    success = downloader.download_video(playlist_url, output_path, args.quality, pbar)
-    pbar.close()
+    # Download the video (yt-dlp will show its native progress bar)
+    print(f"[*] Starting download to: {output_path}")
+    success = downloader.download_video(playlist_url, output_path, args.quality)
+
+    if success:
+        print(f"[+] Download completed: {output_path}")
+    else:
+        print(f"[!] Download failed")
 
     return 0 if success else 1
 
