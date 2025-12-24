@@ -247,10 +247,11 @@ class VixSrcDownloader:
 
     BASE_URL = "https://vixsrc.to"
 
-    def __init__(self, timeout: int = 30, lang: str = 'en', quiet: bool = False):
+    def __init__(self, timeout: int = 30, lang: str = 'en', quiet: bool = False, ytdlp_concurrency: int = 5):
         self.timeout = timeout
         self.lang = lang
         self.quiet = quiet  # Suppress verbose logging when using progress bars
+        self.ytdlp_concurrency = ytdlp_concurrency
         # Use cloudscraper to bypass Cloudflare protection
         self.session = cloudscraper.create_scraper()
         self.session.headers.update({
@@ -317,7 +318,9 @@ class VixSrcDownloader:
                     params.append("h=1")  # Required parameter
                     params.append(f"lang={self.lang}")  # Language parameter
 
-                    playlist_url = f"{playlist_base_url}?{'&'.join(params)}"
+                    # Check if base URL already has query parameters
+                    separator = '&' if '?' in playlist_base_url else '?'
+                    playlist_url = f"{playlist_base_url}{separator}{'&'.join(params)}"
 
                     # Clean up any HTML entities
                     playlist_url = playlist_url.replace('&amp;', '&')
@@ -492,7 +495,7 @@ class VixSrcDownloader:
 
         cmd = [
             'yt-dlp',
-            '-N 10',
+            '-N', str(self.ytdlp_concurrency),
             '--no-warnings',
             '--newline',
             '--progress',
@@ -908,6 +911,8 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
                        help='Disable TMDB metadata fetching for filenames')
     parser.add_argument('--parallel', '-p', type=int, default=1, metavar='N',
                        help='Number of parallel downloads for batch mode (default: 1)')
+    parser.add_argument('--ytdlp-concurrency', type=int, default=5, metavar='N',
+                       help='Number of concurrent fragment downloads for yt-dlp (default: 5)')
 
     args = parser.parse_args()
 
@@ -919,7 +924,7 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
         parser.error('--url-only cannot be used with --batch mode')
 
     # Create downloader
-    downloader = VixSrcDownloader(timeout=args.timeout, lang=args.lang)
+    downloader = VixSrcDownloader(timeout=args.timeout, lang=args.lang, ytdlp_concurrency=args.ytdlp_concurrency)
 
     # Create TMDB metadata helper
     tmdb_metadata = None
@@ -1005,9 +1010,15 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
             os.makedirs(args.output_dir, exist_ok=True)
             output_path = os.path.join(args.output_dir, default_output)
 
-    # Download the video
-    success = downloader.download_video(playlist_url, output_path, args.quality)
-    
+    # Download the video with progress bar
+    pbar = tqdm(
+        total=100,
+        desc=f"Downloading",
+        bar_format='{desc}: {percentage:3.0f}%|{bar}| [{elapsed}]'
+    )
+    success = downloader.download_video(playlist_url, output_path, args.quality, pbar)
+    pbar.close()
+
     return 0 if success else 1
 
 
