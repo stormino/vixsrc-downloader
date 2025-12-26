@@ -1,0 +1,348 @@
+"""Batch download functionality."""
+
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from typing import Optional, List, Tuple
+
+from .constants import (
+    DEFAULT_LANG,
+    DEFAULT_QUALITY,
+    DEFAULT_EXTENSION,
+    STATUS_ICON_FAILURE
+)
+from .downloader import VixSrcDownloader
+from .metadata import TMDBMetadata
+from .progress import ProgressTracker
+
+try:
+    from tqdm import tqdm
+except ImportError:
+    tqdm = None  # type: ignore
+
+try:
+    from rich.progress import Progress, BarColumn, TimeRemainingColumn, TimeElapsedColumn, TextColumn
+except ImportError:
+    Progress = None  # type: ignore
+    BarColumn = None  # type: ignore
+    TimeRemainingColumn = None  # type: ignore
+    TimeElapsedColumn = None  # type: ignore
+    TextColumn = None  # type: ignore
+
+
+@dataclass(frozen=True)
+class DownloadTask:
+    """Represents a single download task from batch file"""
+    content_type: str  # 'tv' or 'movie'
+    tmdb_id: int
+    season: Optional[int] = None
+    episode: Optional[int] = None
+    output_file: Optional[str] = None
+    lang: Optional[str] = None
+    quality: Optional[str] = None
+    line_number: int = 0
+
+    def __str__(self):
+        if self.content_type == 'tv':
+            return f"TV {self.tmdb_id} S{self.season:02d}E{self.episode:02d}"
+        return f"Movie {self.tmdb_id}"
+
+
+class BatchDownloader:
+    """Handle batch downloads from a file"""
+
+    def __init__(self, downloader: VixSrcDownloader, tmdb_metadata: Optional[TMDBMetadata] = None):
+        self.downloader = downloader
+        self.tmdb_metadata = tmdb_metadata
+
+    def parse_batch_file(self, file_path: str) -> List[DownloadTask]:
+        """Parse batch download file and return list of tasks"""
+        tasks = []
+
+        try:
+            with open(file_path, 'r') as f:
+                for line_num, line in enumerate(f, 1):
+                    line = line.strip()
+
+                    # Skip empty lines and comments
+                    if not line or line.startswith('#'):
+                        continue
+
+                    # Parse line
+                    parts = line.split()
+                    if len(parts) < 2:
+                        print(f"[!] Warning: Invalid format at line {line_num}: {line}")
+                        continue
+
+                    content_type = parts[0].lower()
+
+                    if content_type == 'tv':
+                        # Format: tv TMDB_ID SEASON EPISODE [OUTPUT_FILE] [LANG] [QUALITY]
+                        if len(parts) < 4:
+                            print(f"[!] Warning: Invalid TV format at line {line_num}: {line}")
+                            continue
+
+                        try:
+                            task = DownloadTask(
+                                content_type='tv',
+                                tmdb_id=int(parts[1]),
+                                season=int(parts[2]),
+                                episode=int(parts[3]),
+                                output_file=parts[4] if len(parts) > 4 and parts[4] != '-' else None,
+                                lang=parts[5] if len(parts) > 5 and parts[5] != '-' else None,
+                                quality=parts[6] if len(parts) > 6 and parts[6] != '-' else None,
+                                line_number=line_num
+                            )
+                            tasks.append(task)
+                        except ValueError as e:
+                            print(f"[!] Warning: Invalid values at line {line_num}: {e}")
+                            continue
+
+                    elif content_type == 'movie':
+                        # Format: movie TMDB_ID [OUTPUT_FILE] [LANG] [QUALITY]
+                        try:
+                            task = DownloadTask(
+                                content_type='movie',
+                                tmdb_id=int(parts[1]),
+                                output_file=parts[2] if len(parts) > 2 and parts[2] != '-' else None,
+                                lang=parts[3] if len(parts) > 3 and parts[3] != '-' else None,
+                                quality=parts[4] if len(parts) > 4 and parts[4] != '-' else None,
+                                line_number=line_num
+                            )
+                            tasks.append(task)
+                        except ValueError as e:
+                            print(f"[!] Warning: Invalid values at line {line_num}: {e}")
+                            continue
+
+                    else:
+                        print(f"[!] Warning: Unknown content type at line {line_num}: {content_type}")
+                        continue
+
+        except FileNotFoundError:
+            print(f"[!] Error: File not found: {file_path}")
+            return []
+        except Exception as e:
+            print(f"[!] Error reading file: {e}")
+            return []
+
+        return tasks
+
+    def process_single_download(self, task: DownloadTask, output_dir: Optional[str] = None,
+                                default_lang: str = DEFAULT_LANG, default_quality: str = DEFAULT_QUALITY,
+                                progress_bar: Optional['tqdm'] = None, rich_progress: Optional[tuple] = None) -> bool:
+        """Process a single download task"""
+
+        # Create progress tracker
+        tracker = ProgressTracker(progress_bar, rich_progress,
+                                 quiet=(progress_bar is not None or rich_progress is not None))
+
+        # Update downloader settings
+        self._configure_downloader(task, default_lang, tracker)
+
+        # Fetch metadata and update description
+        task_description = self._get_task_description(task, tracker)
+
+        try:
+            # Get playlist URL
+            playlist_url = self._get_playlist_url(task, tracker, task_description)
+            if not playlist_url:
+                return False
+
+            # Determine output path
+            output_path = self._resolve_output_path(task, output_dir)
+
+            # Download video
+            quality = task.quality or default_quality
+            success = self.downloader.download_video(
+                playlist_url, output_path, quality, progress_bar, rich_progress
+            )
+
+            # Update final status
+            tracker.mark_complete(success, task_description)
+            return success
+
+        except Exception as e:
+            tracker.set_description(f"{task_description} - {str(e)}", STATUS_ICON_FAILURE)
+            return False
+
+    def _configure_downloader(self, task: DownloadTask,
+                             default_lang: str,
+                             tracker: ProgressTracker) -> None:
+        """Configure downloader for this task"""
+        lang = task.lang or default_lang
+        if lang != self.downloader.lang:
+            self.downloader.lang = lang
+        if tracker.has_progress_ui():
+            self.downloader.quiet = True
+
+    def _get_task_description(self, task: DownloadTask,
+                             tracker: ProgressTracker) -> str:
+        """Get human-readable task description from TMDB metadata"""
+        task_description = str(task)
+
+        if not self.tmdb_metadata or not self.tmdb_metadata.api_key:
+            return task_description
+
+        try:
+            if task.content_type == 'tv':
+                info = self.tmdb_metadata.get_tv_info(
+                    task.tmdb_id, task.season, task.episode  # type: ignore
+                )
+                if info:
+                    task_description = f"{info['show_name']} S{info['season']:02d}E{info['episode']:02d}"
+                    if info.get('episode_name'):
+                        task_description += f" - {info['episode_name']}"
+            else:
+                info = self.tmdb_metadata.get_movie_info(task.tmdb_id)
+                if info and info.get('title'):
+                    task_description = f"{info['title']}"
+                    if info.get('year'):
+                        task_description += f" ({info['year']})"
+        except Exception:
+            pass
+
+        # Update progress bar description
+        tracker.set_description(task_description)
+        return task_description
+
+    def _get_playlist_url(self, task: DownloadTask, tracker: ProgressTracker,
+                         description: str) -> Optional[str]:
+        """Get playlist URL for task"""
+        if task.content_type == 'tv':
+            playlist_url = self.downloader.get_playlist_url(
+                task.tmdb_id, task.season, task.episode, tracker
+            )
+        else:
+            playlist_url = self.downloader.get_playlist_url(
+                task.tmdb_id, progress_tracker=tracker
+            )
+
+        if not playlist_url:
+            tracker.set_description(f"{description} - Failed to get URL", STATUS_ICON_FAILURE)
+
+        return playlist_url
+
+    def _resolve_output_path(self, task: DownloadTask,
+                            output_dir: Optional[str]) -> str:
+        """Resolve output path for task"""
+        if task.output_file:
+            output_path = task.output_file
+            if output_dir and not os.path.isabs(output_path):
+                output_path = os.path.join(output_dir, output_path)
+        else:
+            # Generate filename
+            output_path = self._generate_filename(task)
+            if output_dir:
+                output_path = os.path.join(output_dir, output_path)
+
+        return output_path
+
+    def _generate_filename(self, task: DownloadTask) -> str:
+        """Generate filename from TMDB metadata or fallback"""
+        if task.content_type == 'tv':
+            if self.tmdb_metadata and self.tmdb_metadata.api_key:
+                return self.tmdb_metadata.generate_tv_filename(
+                    task.tmdb_id, task.season, task.episode  # type: ignore
+                )
+            else:
+                return f"tv_{task.tmdb_id}_s{task.season:02d}e{task.episode:02d}.{DEFAULT_EXTENSION}"
+        else:
+            if self.tmdb_metadata and self.tmdb_metadata.api_key:
+                return self.tmdb_metadata.generate_movie_filename(task.tmdb_id)
+            else:
+                return f"movie_{task.tmdb_id}.{DEFAULT_EXTENSION}"
+
+    def download_batch(self, tasks: List[DownloadTask], output_dir: Optional[str] = None,
+                      parallel_jobs: int = 1, default_lang: str = DEFAULT_LANG,
+                      default_quality: str = DEFAULT_QUALITY) -> Tuple[int, int]:
+        """
+        Download all tasks in batch with Rich progress bars
+
+        Returns:
+            Tuple of (success_count, failed_count)
+        """
+
+        # Create output directory if specified
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
+
+        total = len(tasks)
+        success_count = 0
+        failed_count = 0
+
+        print(f"\nVixSrc Batch Downloader - {total} tasks - {parallel_jobs} parallel job(s)\n")
+
+        # Check if Rich is available
+        if not Progress:
+            print("[!] Warning: Rich library not available, progress bars disabled")
+            # Fallback to simple sequential processing
+            for task in tasks:
+                success = self.process_single_download(task, output_dir, default_lang, default_quality)
+                if success:
+                    success_count += 1
+                else:
+                    failed_count += 1
+        else:
+            # Use Rich Progress for all batch downloads
+            with Progress(
+                TextColumn("[bold blue]{task.description}", justify="left"),
+                BarColumn(bar_width=30),
+                "[progress.percentage]{task.percentage:>3.0f}%",
+                TextColumn("{task.fields[bitrate]}", justify="right"),
+                TimeElapsedColumn(),
+                TimeRemainingColumn(),
+            ) as progress:
+
+                if parallel_jobs > 1:
+                    # Parallel execution with multiple progress bars
+                    task_ids = {}
+                    future_to_task = {}
+
+                    with ThreadPoolExecutor(max_workers=parallel_jobs) as executor:
+                        # Submit all tasks with their own progress bars
+                        for task in tasks:
+                            # Create a Rich progress task with bitrate field
+                            task_id = progress.add_task(f"{task}", total=100, bitrate="")
+                            task_ids[task] = task_id
+
+                            future = executor.submit(
+                                self.process_single_download,
+                                task, output_dir, default_lang, default_quality, None, (progress, task_id)
+                            )
+                            future_to_task[future] = task
+
+                        # Process completed tasks
+                        for future in as_completed(future_to_task):
+                            task = future_to_task[future]
+
+                            try:
+                                success = future.result()
+                                if success:
+                                    success_count += 1
+                                else:
+                                    failed_count += 1
+                            except Exception as e:
+                                failed_count += 1
+
+                else:
+                    # Sequential execution
+                    for task in tasks:
+                        task_id = progress.add_task(f"{task}", total=100, bitrate="")
+
+                        success = self.process_single_download(task, output_dir, default_lang, default_quality, None, (progress, task_id))
+
+                        if success:
+                            success_count += 1
+                        else:
+                            failed_count += 1
+
+        # Print summary
+        print(f"\n{'='*60}")
+        print(f"Summary")
+        print(f"{'='*60}")
+        print(f"Total:   {total}")
+        print(f"Success: {success_count}")
+        print(f"Failed:  {failed_count}")
+        print(f"{'='*60}\n")
+
+        return success_count, failed_count

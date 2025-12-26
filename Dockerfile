@@ -14,7 +14,8 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the application script
+# Copy the package and wrapper script
+COPY vixsrc_downloader/ /app/vixsrc_downloader/
 COPY vixsrc_downloader.py .
 
 # Create a directory for downloads
@@ -26,8 +27,8 @@ WORKDIR /downloads
 # Set environment variable (can be overridden at runtime)
 ENV TMDB_API_KEY=""
 
-# The script is executable
-ENTRYPOINT ["python3", "/app/vixsrc_downloader.py"]
+# Use Python module syntax for better compatibility
+ENTRYPOINT ["python3", "-m", "vixsrc_downloader"]
 
 # Default command shows help
 CMD ["--help"]

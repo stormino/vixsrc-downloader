@@ -28,17 +28,25 @@ A Python tool to download videos from vixsrc.to using TMDB (The Movie Database) 
 
 ## Installation
 
-1. Make the script executable:
+### Quick Setup
+
 ```bash
-chmod +x vixsrc_downloader.py
+# Clone or download the repository
+cd vixsrc-downloader
+
+# Run the setup script (installs dependencies automatically)
+chmod +x setup.sh
+./setup.sh
 ```
 
-2. Install required Python packages:
+### Manual Installation
+
+1. Install required Python packages:
 ```bash
 pip install -r requirements.txt --break-system-packages
 ```
 
-3. Install a downloader (choose one):
+2. Install a downloader (choose one):
 ```bash
 # Option 1: yt-dlp (recommended)
 pip install yt-dlp --break-system-packages
@@ -49,7 +57,7 @@ sudo yum install ffmpeg       # CentOS/RHEL
 brew install ffmpeg           # macOS
 ```
 
-4. **(Optional but Recommended)** Set up TMDB API key for enhanced filenames:
+3. **(Optional but Recommended)** Set up TMDB API key for enhanced filenames:
 
    a. Get a free API key from [TMDB](https://www.themoviedb.org/settings/api):
       - Create a free account at themoviedb.org
@@ -67,6 +75,57 @@ brew install ffmpeg           # macOS
    ```
 
    Without the API key, the tool will still work but will use basic filenames like `movie_550.mp4` instead of `Fight.Club.1999.mp4`.
+
+## Project Structure
+
+The project has been refactored into a modular package for better code organization:
+
+```
+vixsrc-downloader/
+├── vixsrc_downloader/          # Main package
+│   ├── __init__.py             # Package exports
+│   ├── __main__.py             # CLI entry point
+│   ├── constants.py            # Configuration constants
+│   ├── utils.py                # Utility functions
+│   ├── progress.py             # Progress tracking (ProgressTracker, ProgressParser)
+│   ├── metadata.py             # TMDB metadata fetching (TMDBMetadata)
+│   ├── extractor.py            # Playlist URL extraction (PlaylistExtractor)
+│   ├── downloader.py           # Core download logic (VixSrcDownloader, DownloadExecutor)
+│   └── batch.py                # Batch processing (BatchDownloader, DownloadTask)
+├── vixsrc_downloader.py        # Wrapper script (backward compatibility)
+├── requirements.txt            # Python dependencies
+├── Dockerfile                  # Container definition
+└── setup.sh                    # Installation script
+```
+
+### Usage Methods
+
+You can run the downloader in three ways:
+
+```bash
+# Method 1: Using the wrapper script (backward compatible)
+python3 vixsrc_downloader.py --movie 550
+
+# Method 2: As a Python module
+python3 -m vixsrc_downloader --movie 550
+
+# Method 3: Import as a library in your own code
+from vixsrc_downloader import VixSrcDownloader, TMDBMetadata
+downloader = VixSrcDownloader()
+playlist_url = downloader.get_playlist_url(550)  # Movie ID 550
+```
+
+**Docker:**
+```bash
+# Build the image
+docker build -t vixsrc-downloader .
+
+# Run with TMDB API key
+docker run -e TMDB_API_KEY="your_key" -v ./downloads:/downloads vixsrc-downloader --movie 550
+
+# Run without TMDB key (basic filenames)
+docker run -v ./downloads:/downloads vixsrc-downloader --movie 550 --no-metadata
+```
 
 ## Usage
 
@@ -314,23 +373,68 @@ mpv "$URL"
 
 ### Architecture
 
+The project is organized into focused modules:
+
+**Core Components:**
+- **constants.py** - All configuration constants and regex patterns
+- **utils.py** - Utility functions (filename sanitization, dependency management)
+
+**Download Pipeline:**
+- **extractor.py** (`PlaylistExtractor`) - Extracts HLS playlist URLs from vixsrc.to
+  - Multiple extraction strategies with automatic fallback
+  - Playlist verification and URL construction
+- **downloader.py** (`VixSrcDownloader`, `DownloadExecutor`) - Core download functionality
+  - Handles yt-dlp and ffmpeg download backends
+  - Command building and execution management
+- **progress.py** (`ProgressTracker`, `ProgressParser`) - Unified progress tracking
+  - Supports both tqdm and rich progress bars
+  - Parses yt-dlp/ffmpeg output for real-time updates
+
+**Metadata & Batch:**
+- **metadata.py** (`TMDBMetadata`) - TMDB API integration
+  - Fetches movie and TV show metadata
+  - Generates descriptive filenames
+- **batch.py** (`BatchDownloader`, `DownloadTask`) - Batch processing
+  - Parses batch files
+  - Manages parallel downloads with progress tracking
+
+**Class Responsibilities:**
+
 ```
-vixsrc_downloader.py
-├── VixSrcDownloader class
-│   ├── get_movie_url()        - Construct movie embed URL
-│   ├── get_tv_url()           - Construct TV show embed URL
-│   ├── extract_playlist_url() - Parse embed page for HLS URL
-│   └── download_video()       - Download using yt-dlp/ffmpeg
-├── TMDBMetadata class
-│   ├── get_movie_info()       - Fetch movie metadata from TMDB
-│   ├── get_tv_info()          - Fetch TV show metadata from TMDB
-│   ├── generate_movie_filename() - Generate descriptive movie filename
-│   └── generate_tv_filename() - Generate descriptive TV filename
-├── BatchDownloader class
-│   ├── parse_batch_file()     - Parse batch download file
-│   ├── process_single_download() - Process one download task
-│   └── download_batch()       - Execute batch downloads with parallel support
-└── DownloadTask dataclass     - Represents a single download task
+VixSrcDownloader
+├── get_movie_url()        - Construct movie embed URL
+├── get_tv_url()           - Construct TV show embed URL
+├── extract_playlist_url() - Delegate to PlaylistExtractor
+└── download_video()       - Download using yt-dlp/ffmpeg
+
+PlaylistExtractor
+├── extract()                      - Try all extraction strategies
+├── _extract_from_master_playlist() - Strategy 1: window.masterPlaylist
+├── _extract_from_direct_pattern()  - Strategy 2: Direct regex match
+├── _extract_from_api_endpoints()   - Strategy 3: API endpoint discovery
+└── _extract_from_video_id()        - Strategy 4: Video ID extraction
+
+DownloadExecutor
+├── build_ytdlp_command()   - Construct yt-dlp command
+├── execute_with_progress() - Run with progress tracking
+└── execute_simple()        - Run with native progress
+
+TMDBMetadata
+├── get_movie_info()          - Fetch movie metadata from TMDB
+├── get_tv_info()             - Fetch TV show metadata from TMDB
+├── generate_movie_filename() - Generate descriptive movie filename
+└── generate_tv_filename()    - Generate descriptive TV filename
+
+BatchDownloader
+├── parse_batch_file()        - Parse batch download file
+├── process_single_download() - Process one download task
+└── download_batch()          - Execute batch downloads with parallel support
+
+ProgressTracker
+├── log()               - Conditional logging
+├── update_percent()    - Update progress percentage
+├── mark_complete()     - Mark task as complete/failed
+└── has_progress_ui()   - Check if progress UI is active
 ```
 
 ### URL Pattern
