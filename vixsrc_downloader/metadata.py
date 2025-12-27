@@ -158,3 +158,86 @@ class TMDBMetadata:
             filename = f"tv_{tmdb_id}_s{season:02d}e{episode:02d}.{extension}"
 
         return filename
+
+    def get_show_name(self, tmdb_id: int) -> Optional[str]:
+        """
+        Get TV show name for display/logging purposes.
+
+        Args:
+            tmdb_id: TMDB TV show ID
+
+        Returns:
+            Show name or None if API key not set
+        """
+        if not self.api_key or not tmdb:
+            return None
+
+        try:
+            show = tmdb.TV(tmdb_id)
+            show_info = show.info()
+            return show_info.get('name', '')
+        except Exception as e:
+            print(f"[!] Warning: Failed to fetch TV show name: {e}")
+            return None
+
+    def get_all_seasons(self, tmdb_id: int) -> Optional[list[Dict[str, Any]]]:
+        """
+        Get all seasons with episode counts for a TV show.
+
+        Args:
+            tmdb_id: TMDB TV show ID
+
+        Returns:
+            List of dicts with 'season_number' and 'episode_count', or None if API key not set
+        """
+        if not self.api_key or not tmdb:
+            return None
+
+        try:
+            show = tmdb.TV(tmdb_id)
+            show_info = show.info()
+
+            # Extract seasons, skip Season 0 (specials)
+            seasons = []
+            for season in show_info.get('seasons', []):
+                season_num = season.get('season_number', 0)
+                if season_num > 0:  # Skip specials
+                    seasons.append({
+                        'season_number': season_num,
+                        'episode_count': season.get('episode_count', 0)
+                    })
+
+            return seasons
+        except Exception as e:
+            print(f"[!] Warning: Failed to fetch seasons: {e}")
+            return None
+
+    def get_season_episodes(self, tmdb_id: int, season: int) -> Optional[list[int]]:
+        """
+        Get all episode numbers for a specific season.
+
+        Args:
+            tmdb_id: TMDB TV show ID
+            season: Season number
+
+        Returns:
+            List of episode numbers, or None if API key not set
+        """
+        if not self.api_key or not tmdb:
+            return None
+
+        try:
+            season_obj = tmdb.TV_Seasons(tmdb_id, season)
+            season_info = season_obj.info()
+
+            # Extract episode numbers
+            episodes = []
+            for episode in season_info.get('episodes', []):
+                ep_num = episode.get('episode_number')
+                if ep_num is not None:
+                    episodes.append(ep_num)
+
+            return episodes
+        except Exception as e:
+            print(f"[!] Warning: Failed to fetch episodes for season {season}: {e}")
+            return None

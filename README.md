@@ -9,6 +9,7 @@ A Python tool to download videos from vixsrc.to using TMDB (The Movie Database) 
 ## Features
 
 - Download movies and TV show episodes using TMDB IDs
+- **Bulk TV downloads** - Download entire shows or seasons with a single command
 - **Batch downloads** from a file with parallel processing support
 - **Real-time progress bars** showing download progress for each running task
 - **Auto-generate descriptive filenames** from TMDB metadata (e.g., `Fight.Club.1999.mp4` or `Breaking.Bad.S04E04.Ozymandias.mp4`)
@@ -155,8 +156,9 @@ python3 vixsrc_downloader.py --movie 550 --lang es
 python3 vixsrc_downloader.py --movie 550 --no-metadata
 ```
 
-### Download a TV Show Episode
+### Download TV Shows
 
+**Single Episode:**
 ```bash
 # Download Breaking Bad S04E04 (auto-generates filename: Breaking.Bad.S04E04.Ozymandias.mp4)
 python3 vixsrc_downloader.py --tv 60625 --season 4 --episode 4
@@ -167,6 +169,24 @@ python3 vixsrc_downloader.py --tv 60625 --season 4 --episode 4 --output bb_s04e0
 # Without metadata (uses basic filename: tv_60625_s04e04.mp4)
 python3 vixsrc_downloader.py --tv 60625 --season 4 --episode 4 --no-metadata
 ```
+
+**Bulk Downloads (requires TMDB API key):**
+```bash
+# Download entire TV show (all seasons)
+python3 vixsrc_downloader.py --tv 60625 --output-dir ./breaking_bad --parallel 3
+
+# Download entire season
+python3 vixsrc_downloader.py --tv 60625 --season 4 --output-dir ./bb_s4 --parallel 2
+
+# Download season with specific quality and language
+python3 vixsrc_downloader.py --tv 60625 --season 1 --quality 720 --lang en --parallel 3
+```
+
+**Features:**
+- Automatically discovers all episodes using TMDB API
+- Uses batch download infrastructure with parallel processing
+- Shows individual progress bars for each episode
+- Generates descriptive filenames for all episodes
 
 ### Batch Downloads
 
@@ -232,15 +252,15 @@ usage: vixsrc_downloader.py [-h] (--movie TMDB_ID | --tv TMDB_ID | --batch FILE)
                              [--season N] [--episode N] [--output FILE]
                              [--output-dir DIR] [--quality QUALITY] [--url-only]
                              [--timeout SEC] [--lang LANG] [--tmdb-api-key KEY]
-                             [--no-metadata] [--parallel N]
+                             [--no-metadata] [--parallel N] [--ytdlp-concurrency N]
 
 optional arguments:
   -h, --help            show this help message and exit
   --movie TMDB_ID       TMDB ID for a movie
   --tv TMDB_ID          TMDB ID for a TV show
   --batch FILE          Batch download from file
-  --season N            Season number (required with --tv)
-  --episode N           Episode number (required with --tv)
+  --season N            Season number (optional: if omitted with --tv, downloads all seasons)
+  --episode N           Episode number (optional: if omitted with --tv, downloads whole season)
   --output FILE, -o FILE
                         Output file path (default: auto-generated from TMDB)
   --output-dir DIR, -d DIR
@@ -252,7 +272,8 @@ optional arguments:
   --lang LANG           Language code for audio/subtitles (default: en)
   --tmdb-api-key KEY    TMDB API key (or set TMDB_API_KEY env var)
   --no-metadata         Disable TMDB metadata fetching for filenames
-  --parallel N, -p N    Number of parallel downloads for batch mode (default: 1)
+  --parallel N, -p N    Number of parallel downloads (default: 1)
+  --ytdlp-concurrency N Number of concurrent fragment downloads for yt-dlp (default: 5)
 ```
 
 ## Examples
@@ -263,6 +284,12 @@ python3 vixsrc_downloader.py --movie 603
 
 # Download Game of Thrones S01E01 (TMDB ID: 1399) - auto-generates: Game.of.Thrones.S01E01.Winter.Is.Coming.mp4
 python3 vixsrc_downloader.py --tv 1399 --season 1 --episode 1
+
+# Download entire season of Game of Thrones (all episodes in Season 1)
+python3 vixsrc_downloader.py --tv 1399 --season 1 --output-dir ./got_s1 --parallel 3
+
+# Download all seasons of a TV show
+python3 vixsrc_downloader.py --tv 60625 --output-dir ./breaking_bad --parallel 2
 
 # Download in 720p quality with auto-generated filename
 python3 vixsrc_downloader.py --movie 603 --quality 720
@@ -336,25 +363,24 @@ python3 vixsrc_downloader.py --movie 550 --quality 720
 
 ## Advanced Usage
 
-### Batch File Generation
+### Bulk TV Downloads vs Batch Files
 
-Generate a batch file for an entire season using a script:
-
+**Bulk TV downloads** (new feature) are ideal for downloading entire shows or seasons:
 ```bash
-#!/bin/bash
-# generate_season_batch.sh - Generate batch file for entire season
+# Download entire season (automatically discovers all episodes)
+python3 vixsrc_downloader.py --tv 1399 --season 1 --parallel 3
+```
 
-TMDB_ID=1399  # Game of Thrones
-SEASON=1
-OUTPUT_FILE="season_${SEASON}.txt"
+**Batch files** are better when you need fine-grained control:
+```bash
+# Create batch file with specific episodes and custom settings
+cat > downloads.txt << 'EOF'
+tv 1399 1 1 got_s01e01.mp4 en 1080
+tv 1399 1 3 got_s01e03.mp4 en 720
+tv 1399 1 5 - es 1080
+EOF
 
-echo "# Game of Thrones Season $SEASON" > "$OUTPUT_FILE"
-for EPISODE in {1..10}; do
-    echo "tv $TMDB_ID $SEASON $EPISODE - en 1080" >> "$OUTPUT_FILE"
-done
-
-# Now download with batch mode
-python3 vixsrc_downloader.py --batch "$OUTPUT_FILE" --parallel 3 --output-dir "got_s${SEASON}"
+python3 vixsrc_downloader.py --batch downloads.txt --parallel 2
 ```
 
 ### Using with MPV Player
@@ -422,11 +448,15 @@ DownloadExecutor
 TMDBMetadata
 ├── get_movie_info()          - Fetch movie metadata from TMDB
 ├── get_tv_info()             - Fetch TV show metadata from TMDB
+├── get_show_name()           - Get TV show name for display
+├── get_all_seasons()         - Get all seasons for a TV show (for bulk downloads)
+├── get_season_episodes()     - Get all episodes in a season (for bulk downloads)
 ├── generate_movie_filename() - Generate descriptive movie filename
 └── generate_tv_filename()    - Generate descriptive TV filename
 
 BatchDownloader
 ├── parse_batch_file()        - Parse batch download file
+├── generate_bulk_tv_tasks()  - Generate tasks for bulk TV downloads
 ├── process_single_download() - Process one download task
 └── download_batch()          - Execute batch downloads with parallel support
 

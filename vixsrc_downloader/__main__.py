@@ -28,6 +28,12 @@ Examples:
   export TMDB_API_KEY="your_api_key"
   %(prog)s --movie 550
 
+  # Download entire TV show (all seasons)
+  %(prog)s --tv 60625 --output-dir ./breaking_bad --parallel 3
+
+  # Download entire season
+  %(prog)s --tv 60625 --season 4 --output-dir ./bb_s4 --parallel 2
+
   # Download a TV episode (auto-generates: Breaking.Bad.S04E04.Ozymandias.mp4)
   %(prog)s --tv 60625 --season 4 --episode 4
 
@@ -71,9 +77,9 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
                               help='Batch download from file')
 
     parser.add_argument('--season', type=int, metavar='N',
-                       help='Season number (required with --tv)')
+                       help='Season number (optional: if omitted with --tv, downloads all seasons)')
     parser.add_argument('--episode', type=int, metavar='N',
-                       help='Episode number (required with --tv)')
+                       help='Episode number (optional: if omitted with --tv, downloads whole season)')
     parser.add_argument('--output', '-o', type=str, metavar='FILE',
                        help='Output file path (default: auto-generated)')
     parser.add_argument('--output-dir', '-d', type=str, metavar='DIR',
@@ -99,8 +105,10 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
     args = parser.parse_args()
 
     # Validate arguments
-    if args.tv and (args.season is None or args.episode is None):
-        parser.error('--tv requires both --season and --episode')
+    # --tv can be used alone (all seasons), with --season (all episodes),
+    # or with both --season and --episode (single episode)
+    if args.tv and args.episode is not None and args.season is None:
+        parser.error('--episode requires --season')
 
     if args.batch and args.url_only:
         parser.error('--url-only cannot be used with --batch mode')
@@ -139,6 +147,60 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
         )
 
         # Return non-zero if any downloads failed
+        return 0 if failed_count == 0 else 1
+
+    # Handle bulk TV download mode (--tv without episode, or without both season and episode)
+    if args.tv and (args.season is None or args.episode is None):
+        # Bulk TV download - use batch infrastructure
+
+        # Check for TMDB API key (required for discovering episodes)
+        if not tmdb_metadata or not tmdb_metadata.api_key:
+            print("[!] Error: Bulk TV download requires TMDB API key")
+            print("[*] Set TMDB_API_KEY environment variable or use --tmdb-api-key")
+            print("[*] Get a free API key at https://www.themoviedb.org/settings/api")
+            return 1
+
+        # Show what we're downloading
+        show_name = tmdb_metadata.get_show_name(args.tv)
+        if args.season:
+            print(f"[*] Preparing to download: {show_name or f'TV {args.tv}'} - Season {args.season}")
+        else:
+            print(f"[*] Preparing to download all seasons of: {show_name or f'TV {args.tv}'}")
+
+        # Create batch downloader
+        batch_downloader = BatchDownloader(downloader, tmdb_metadata)
+
+        # Generate tasks for all episodes
+        print(f"[*] Fetching episode list from TMDB...")
+        tasks = batch_downloader.generate_bulk_tv_tasks(
+            tmdb_id=args.tv,
+            season=args.season,
+            episode=args.episode,
+            lang=args.lang,
+            quality=args.quality
+        )
+
+        if not tasks:
+            print("[!] No episodes found")
+            return 1
+
+        print(f"[*] Found {len(tasks)} episode(s) to download")
+        print(f"[*] Parallel jobs: {args.parallel}")
+        print()
+
+        # Download all tasks using batch infrastructure
+        success_count, failed_count = batch_downloader.download_batch(
+            tasks,
+            output_dir=args.output_dir,
+            parallel_jobs=args.parallel,
+            default_lang=args.lang,
+            default_quality=args.quality
+        )
+
+        # Print summary
+        print()
+        print(f"[+] Completed: {success_count} successful, {failed_count} failed")
+
         return 0 if failed_count == 0 else 1
 
     # Get content info and generate filename

@@ -127,6 +127,93 @@ class BatchDownloader:
 
         return tasks
 
+    def generate_bulk_tv_tasks(
+        self,
+        tmdb_id: int,
+        season: Optional[int] = None,
+        episode: Optional[int] = None,
+        lang: Optional[str] = None,
+        quality: Optional[str] = None
+    ) -> List[DownloadTask]:
+        """
+        Generate download tasks for bulk TV download.
+
+        Args:
+            tmdb_id: TMDB TV show ID
+            season: Optional season number (None = all seasons)
+            episode: Optional episode number (None = all in season)
+            lang: Optional language code
+            quality: Optional quality setting
+
+        Returns:
+            List of DownloadTask objects
+        """
+        tasks = []
+
+        # Check if TMDB metadata is available
+        if not self.tmdb_metadata or not self.tmdb_metadata.api_key:
+            print("[!] Error: TMDB API key required for bulk TV downloads")
+            return tasks
+
+        # If both season and episode are provided, return single task
+        if season is not None and episode is not None:
+            task = DownloadTask(
+                content_type='tv',
+                tmdb_id=tmdb_id,
+                season=season,
+                episode=episode,
+                lang=lang,
+                quality=quality
+            )
+            tasks.append(task)
+            return tasks
+
+        # If season provided but not episode, get all episodes in that season
+        if season is not None:
+            episodes = self.tmdb_metadata.get_season_episodes(tmdb_id, season)
+            if not episodes:
+                print(f"[!] Warning: No episodes found for season {season}")
+                return tasks
+
+            for ep_num in episodes:
+                task = DownloadTask(
+                    content_type='tv',
+                    tmdb_id=tmdb_id,
+                    season=season,
+                    episode=ep_num,
+                    lang=lang,
+                    quality=quality
+                )
+                tasks.append(task)
+            return tasks
+
+        # If neither season nor episode provided, get all seasons and all episodes
+        seasons = self.tmdb_metadata.get_all_seasons(tmdb_id)
+        if not seasons:
+            print("[!] Warning: No seasons found for this TV show")
+            return tasks
+
+        for season_info in seasons:
+            season_num = season_info['season_number']
+            episodes = self.tmdb_metadata.get_season_episodes(tmdb_id, season_num)
+
+            if not episodes:
+                print(f"[!] Warning: No episodes found for season {season_num}")
+                continue
+
+            for ep_num in episodes:
+                task = DownloadTask(
+                    content_type='tv',
+                    tmdb_id=tmdb_id,
+                    season=season_num,
+                    episode=ep_num,
+                    lang=lang,
+                    quality=quality
+                )
+                tasks.append(task)
+
+        return tasks
+
     def process_single_download(self, task: DownloadTask, output_dir: Optional[str] = None,
                                 default_lang: str = DEFAULT_LANG, default_quality: str = DEFAULT_QUALITY,
                                 progress_bar: Optional['tqdm'] = None, rich_progress: Optional[tuple] = None) -> bool:
