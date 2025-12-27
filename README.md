@@ -8,6 +8,7 @@ A Python tool to download videos from vixsrc.to using TMDB (The Movie Database) 
 
 ## Features
 
+- **Search for content** - Search TMDB for movies and TV shows, showing only content available on vixsrc
 - Download movies and TV show episodes using TMDB IDs
 - **Bulk TV downloads** - Download entire shows or seasons with a single command
 - **Batch downloads** from a file with parallel processing support
@@ -130,12 +131,33 @@ docker run -v ./downloads:/downloads vixsrc-downloader --movie 550 --no-metadata
 
 ## Usage
 
+### Search for Content
+
+Search TMDB for movies and TV shows, with automatic verification that content is available on vixsrc (requires TMDB API key):
+
+```bash
+# Set your TMDB API key
+export TMDB_API_KEY="your_api_key_here"
+
+# Search for content
+python3 vixsrc_downloader.py --search "breaking bad"
+python3 vixsrc_downloader.py --search "fight club"
+```
+
+The search displays:
+- **Movies**: TMDB ID, title, year, rating, overview
+- **TV Shows**: TMDB ID, name, year, **number of seasons**, **total episodes**, rating, overview
+
+Only content actually available on vixsrc is shown, so you can download anything from the results immediately.
+
 ### Finding TMDB IDs
 
 You can find TMDB IDs at [themoviedb.org](https://www.themoviedb.org/):
 
 1. Search for your movie or TV show
 2. The ID is in the URL: `https://www.themoviedb.org/movie/550` → ID is **550**
+
+Or use the built-in search feature (see above).
 
 ### Download a Movie
 
@@ -248,7 +270,7 @@ python3 vixsrc_downloader.py --movie 550 --url-only
 ### Command-Line Options
 
 ```
-usage: vixsrc_downloader.py [-h] (--movie TMDB_ID | --tv TMDB_ID | --batch FILE)
+usage: vixsrc_downloader.py [-h] (--movie TMDB_ID | --tv TMDB_ID | --batch FILE | --search TERM)
                              [--season N] [--episode N] [--output FILE]
                              [--output-dir DIR] [--quality QUALITY] [--url-only]
                              [--timeout SEC] [--lang LANG] [--tmdb-api-key KEY]
@@ -259,6 +281,7 @@ optional arguments:
   --movie TMDB_ID       TMDB ID for a movie
   --tv TMDB_ID          TMDB ID for a TV show
   --batch FILE          Batch download from file
+  --search TERM         Search for movies and TV shows by title (requires TMDB API key)
   --season N            Season number (optional: if omitted with --tv, downloads all seasons)
   --episode N           Episode number (optional: if omitted with --tv, downloads whole season)
   --output FILE, -o FILE
@@ -279,6 +302,11 @@ optional arguments:
 ## Examples
 
 ```bash
+# Search for content to find TMDB IDs
+export TMDB_API_KEY="your_api_key"
+python3 vixsrc_downloader.py --search "matrix"
+python3 vixsrc_downloader.py --search "game of thrones"
+
 # Download The Matrix (TMDB ID: 603) - auto-generates: The.Matrix.1999.mp4
 python3 vixsrc_downloader.py --movie 603
 
@@ -446,6 +474,8 @@ DownloadExecutor
 └── execute_simple()        - Run with native progress
 
 TMDBMetadata
+├── search_movies()           - Search for movies by title (returns list with availability check)
+├── search_tv_shows()         - Search for TV shows by title (returns list with availability check)
 ├── get_movie_info()          - Fetch movie metadata from TMDB
 ├── get_tv_info()             - Fetch TV show metadata from TMDB
 ├── get_show_name()           - Get TV show name for display

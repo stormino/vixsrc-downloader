@@ -241,3 +241,111 @@ class TMDBMetadata:
         except Exception as e:
             print(f"[!] Warning: Failed to fetch episodes for season {season}: {e}")
             return None
+
+    def search_movies(self, query: str) -> Optional[list[Dict[str, Any]]]:
+        """
+        Search for movies by title.
+
+        Args:
+            query: Search term
+
+        Returns:
+            List of movie results with id, title, year, overview, or None if API key not set
+        """
+        if not self.api_key or not tmdb:
+            return None
+
+        try:
+            search = tmdb.Search()
+            results = search.movie(query=query)
+
+            movies = []
+            for movie in search.results:
+                year = None
+                if movie.get('release_date'):
+                    year = movie['release_date'].split('-')[0]
+
+                movies.append({
+                    'id': movie.get('id'),
+                    'title': movie.get('title', 'N/A'),
+                    'original_title': movie.get('original_title', 'N/A'),
+                    'year': year or 'N/A',
+                    'overview': movie.get('overview', 'No overview available'),
+                    'vote_average': movie.get('vote_average', 0),
+                    'popularity': movie.get('popularity', 0)
+                })
+
+            return movies
+        except Exception as e:
+            print(f"[!] Error: Failed to search movies: {e}")
+            return None
+
+    def search_tv_shows(self, query: str) -> Optional[list[Dict[str, Any]]]:
+        """
+        Search for TV shows by title.
+
+        Args:
+            query: Search term
+
+        Returns:
+            List of TV show results with id, name, year, seasons, episodes, overview, or None if API key not set
+        """
+        if not self.api_key or not tmdb:
+            return None
+
+        try:
+            search = tmdb.Search()
+            results = search.tv(query=query)
+
+            shows = []
+            for show in search.results:
+                # Get detailed info for each show to get season/episode counts
+                try:
+                    show_detail = tmdb.TV(show.get('id'))
+                    show_info = show_detail.info()
+
+                    # Count total episodes across all seasons (excluding specials)
+                    total_episodes = 0
+                    season_count = 0
+                    for season in show_info.get('seasons', []):
+                        if season.get('season_number', 0) > 0:  # Skip specials
+                            season_count += 1
+                            total_episodes += season.get('episode_count', 0)
+
+                    year = None
+                    if show.get('first_air_date'):
+                        year = show['first_air_date'].split('-')[0]
+
+                    shows.append({
+                        'id': show.get('id'),
+                        'name': show.get('name', 'N/A'),
+                        'original_name': show.get('original_name', 'N/A'),
+                        'year': year or 'N/A',
+                        'seasons': season_count,
+                        'total_episodes': total_episodes,
+                        'overview': show.get('overview', 'No overview available'),
+                        'vote_average': show.get('vote_average', 0),
+                        'popularity': show.get('popularity', 0)
+                    })
+                except Exception as e:
+                    # If detailed info fails, add basic info
+                    year = None
+                    if show.get('first_air_date'):
+                        year = show['first_air_date'].split('-')[0]
+
+                    shows.append({
+                        'id': show.get('id'),
+                        'name': show.get('name', 'N/A'),
+                        'original_name': show.get('original_name', 'N/A'),
+                        'year': year or 'N/A',
+                        'seasons': 'N/A',
+                        'total_episodes': 'N/A',
+                        'overview': show.get('overview', 'No overview available'),
+                        'vote_average': show.get('vote_average', 0),
+                        'popularity': show.get('popularity', 0)
+                    })
+
+            return shows
+        except Exception as e:
+            print(f"[!] Error: Failed to search TV shows: {e}")
+            return None
