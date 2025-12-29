@@ -322,11 +322,43 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
     if args.output:
         output_path = args.output
     else:
-        output_path = default_output
-        # If output directory is specified, prepend it to auto-generated filename
-        if args.output_dir:
-            os.makedirs(args.output_dir, exist_ok=True)
-            output_path = os.path.join(args.output_dir, default_output)
+        # For TV shows, create show_name/Season XX/ directory structure
+        if args.tv and tmdb_metadata and tmdb_metadata.api_key:
+            from .utils import sanitize_filename
+
+            info = tmdb_metadata.get_tv_info(tmdb_id, season, episode)
+            if info and info.get('show_name'):
+                show_name = info['show_name'].replace(' ', '.')
+                show_name = sanitize_filename(show_name)
+
+                # Add year to directory name when not using --output-dir
+                if not args.output_dir and info.get('year'):
+                    show_dir = f"{show_name}.{info['year']}"
+                else:
+                    show_dir = show_name
+
+                season_dir = f"Season {season:02d}"
+
+                # Build path: show_dir/Season XX/filename
+                if args.output_dir:
+                    output_path = os.path.join(args.output_dir, show_dir, season_dir, default_output)
+                else:
+                    output_path = os.path.join(show_dir, season_dir, default_output)
+
+                # Create directory structure
+                os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            else:
+                # Fallback if metadata fetch fails
+                output_path = default_output
+                if args.output_dir:
+                    os.makedirs(args.output_dir, exist_ok=True)
+                    output_path = os.path.join(args.output_dir, default_output)
+        else:
+            # Movies or when no metadata available
+            output_path = default_output
+            if args.output_dir:
+                os.makedirs(args.output_dir, exist_ok=True)
+                output_path = os.path.join(args.output_dir, default_output)
 
     # Download the video (yt-dlp will show its native progress bar)
     print(f"[*] Starting download to: {output_path}")

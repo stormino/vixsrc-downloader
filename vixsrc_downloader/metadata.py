@@ -69,7 +69,7 @@ class TMDBMetadata:
             episode: Episode number
 
         Returns:
-            Dictionary with show name, episode name, and other metadata, or None if API key not set
+            Dictionary with show name, episode name, year, and other metadata, or None if API key not set
         """
         if not self.api_key or not tmdb:
             return None
@@ -80,6 +80,11 @@ class TMDBMetadata:
             show_info = show.info()
             show_name = show_info.get('name', '')
 
+            # Extract year from first_air_date (format: YYYY-MM-DD)
+            year = None
+            if show_info.get('first_air_date'):
+                year = show_info['first_air_date'].split('-')[0]
+
             # Get episode info
             episode_obj = tmdb.TV_Episodes(tmdb_id, season, episode)
             episode_info = episode_obj.info()
@@ -88,6 +93,7 @@ class TMDBMetadata:
             return {
                 'show_name': show_name,
                 'episode_name': episode_name,
+                'year': year,
                 'season': season,
                 'episode': episode,
                 'overview': episode_info.get('overview', '')

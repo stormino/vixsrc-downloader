@@ -318,9 +318,44 @@ class BatchDownloader:
                 output_path = os.path.join(output_dir, output_path)
         else:
             # Generate filename
-            output_path = self._generate_filename(task)
-            if output_dir:
-                output_path = os.path.join(output_dir, output_path)
+            filename = self._generate_filename(task)
+
+            # For TV shows, create show_name/Season XX/ directory structure
+            if task.content_type == 'tv' and self.tmdb_metadata and self.tmdb_metadata.api_key:
+                from .utils import sanitize_filename
+
+                # Get show info to extract show name
+                info = self.tmdb_metadata.get_tv_info(task.tmdb_id, task.season, task.episode)  # type: ignore
+                if info and info.get('show_name'):
+                    show_name = info['show_name'].replace(' ', '.')
+                    show_name = sanitize_filename(show_name)
+
+                    # Add year to directory name when not using --output-dir
+                    if not output_dir and info.get('year'):
+                        show_dir = f"{show_name}.{info['year']}"
+                    else:
+                        show_dir = show_name
+
+                    season_dir = f"Season {task.season:02d}"
+
+                    # Build path: show_dir/Season XX/filename
+                    if output_dir:
+                        output_path = os.path.join(output_dir, show_dir, season_dir, filename)
+                    else:
+                        output_path = os.path.join(show_dir, season_dir, filename)
+
+                    # Create directory structure
+                    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+                else:
+                    # Fallback if metadata fetch fails
+                    output_path = filename
+                    if output_dir:
+                        output_path = os.path.join(output_dir, output_path)
+            else:
+                # Movies or when no metadata available
+                output_path = filename
+                if output_dir:
+                    output_path = os.path.join(output_dir, output_path)
 
         return output_path
 
