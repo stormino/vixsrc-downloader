@@ -3,6 +3,10 @@
 import argparse
 import os
 import sys
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 from .batch import BatchDownloader
 from .constants import DEFAULT_TIMEOUT, DEFAULT_LANG, DEFAULT_QUALITY, DEFAULT_YTDLP_CONCURRENCY, DEFAULT_EXTENSION
