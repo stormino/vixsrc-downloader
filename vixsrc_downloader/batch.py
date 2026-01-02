@@ -38,9 +38,20 @@ class DownloadTask:
     season: Optional[int] = None
     episode: Optional[int] = None
     output_file: Optional[str] = None
-    lang: Optional[str] = None
+    lang: Optional[str] = None  # Backward compatibility
+    languages: Optional[List[str]] = None  # New field for multi-language
     quality: Optional[str] = None
     line_number: int = 0
+
+    @property
+    def language_list(self) -> List[str]:
+        """Get languages as list, handling both old and new format"""
+        from .constants import DEFAULT_LANG
+        if self.languages:
+            return self.languages
+        elif self.lang:
+            return [self.lang]
+        return [DEFAULT_LANG]
 
     def __str__(self):
         if self.content_type == 'tv':
@@ -169,7 +180,8 @@ class BatchDownloader:
             # Download video
             quality = task.quality or default_quality
             success = self.downloader.download_video(
-                playlist_url, output_path, quality, progress_bar, rich_progress
+                playlist_url, output_path, quality, progress_bar, rich_progress,
+                tmdb_id=task.tmdb_id, season=task.season, episode=task.episode
             )
 
             # Update final status
@@ -184,9 +196,10 @@ class BatchDownloader:
                              default_lang: str,
                              tracker: ProgressTracker) -> None:
         """Configure downloader for this task"""
-        lang = task.lang or default_lang
-        if lang != self.downloader.lang:
-            self.downloader.lang = lang
+        languages = task.language_list
+        if languages != self.downloader.languages:
+            self.downloader.languages = languages
+            self.downloader.lang = languages[0]  # Update backward compat field
         if tracker.has_progress_ui():
             self.downloader.quiet = True
 

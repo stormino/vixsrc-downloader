@@ -44,9 +44,9 @@ class ProgressTracker:
         self.quiet = quiet
         self.last_percent = 0.0
 
-    def log(self, message: str, prefix: str = "*") -> None:
-        """Log message if not quiet"""
-        if not self.quiet:
+    def log(self, message: str, prefix: str = "*", force: bool = False) -> None:
+        """Log message if not quiet (or if forced)"""
+        if not self.quiet or force:
             print(f"[{prefix}] {message}")
 
     def has_progress_ui(self) -> bool:

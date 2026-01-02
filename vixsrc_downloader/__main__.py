@@ -2,6 +2,7 @@
 
 import argparse
 import os
+import subprocess
 import sys
 from dotenv import load_dotenv
 
@@ -83,8 +84,8 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
                        help='Only print the playlist URL, don\'t download')
     parser.add_argument('--timeout', type=int, default=DEFAULT_TIMEOUT, metavar='SEC',
                        help='Request timeout in seconds (default: 30)')
-    parser.add_argument('--lang', type=str, default=DEFAULT_LANG, metavar='LANG',
-                       help='Language code for audio/subtitles (default: en)')
+    parser.add_argument('--lang', type=str, default=DEFAULT_LANG, metavar='LANGS',
+                       help='Language code(s) for audio (comma-separated for multi-audio, e.g., "it,en"). Default: en')
     parser.add_argument('--tmdb-api-key', type=str, metavar='KEY',
                        help='TMDB API key (or set TMDB_API_KEY env var)')
     parser.add_argument('--no-metadata', action='store_true',
@@ -95,6 +96,18 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
                        help='Number of concurrent fragment downloads for yt-dlp (default: 5)')
 
     args = parser.parse_args()
+
+    # Parse languages
+    languages = [lang.strip() for lang in args.lang.split(',')]
+
+    # Validate multi-language requirements
+    if len(languages) > 1:
+        # Check yt-dlp
+        if subprocess.run(['which', 'yt-dlp'], capture_output=True).returncode != 0:
+            parser.error('Multi-language support requires yt-dlp. Install: pip install yt-dlp --break-system-packages')
+        # Check ffmpeg
+        if subprocess.run(['which', 'ffmpeg'], capture_output=True).returncode != 0:
+            parser.error('Multi-language support requires ffmpeg. Install: apt-get install ffmpeg')
 
     # Validate arguments
     # --tv can be used alone (all seasons), with --season (all episodes),
@@ -113,7 +126,7 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
             return 1
 
         # Create downloader for verification
-        downloader = VixSrcDownloader(timeout=args.timeout, lang=args.lang, ytdlp_concurrency=args.ytdlp_concurrency, quiet=True)
+        downloader = VixSrcDownloader(timeout=args.timeout, languages=languages, ytdlp_concurrency=args.ytdlp_concurrency, quiet=True)
 
         print(f"[*] Searching for: {args.search}")
         print(f"[*] Verifying availability on vixsrc (this may take a moment)...\n")
@@ -171,7 +184,7 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
         return 0
 
     # Create downloader
-    downloader = VixSrcDownloader(timeout=args.timeout, lang=args.lang, ytdlp_concurrency=args.ytdlp_concurrency)
+    downloader = VixSrcDownloader(timeout=args.timeout, languages=languages, ytdlp_concurrency=args.ytdlp_concurrency)
 
     # Create TMDB metadata helper
     tmdb_metadata = None
@@ -271,7 +284,7 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
         season=season,
         episode=episode,
         output_file=args.output,
-        lang=args.lang,
+        languages=languages,
         quality=args.quality
     )
 
