@@ -4,11 +4,10 @@
 
 ```
 vixsrc-downloader/
-├── vixsrc_downloader.py    # Main downloader script (Python)
-├── batch_download.sh        # Batch download helper (Bash)
+├── vixsrc_downloader/      # Main package
+├── vixsrc_downloader.py    # Entry point script
 ├── setup.sh                 # Installation script
 ├── requirements.txt         # Python dependencies
-├── downloads.txt.example    # Example batch download list
 └── README.md               # Main documentation
 ```
 
@@ -31,20 +30,6 @@ The main Python script that handles downloading videos from vixsrc.to.
 - `get_playlist_url(...)` - Main method to get playlist URL
 - `download_video(url, output, quality)` - Download the video
 
-### batch_download.sh
-Bash script for downloading multiple videos from a list.
-
-**Features:**
-- Process multiple downloads sequentially
-- Support for both movies and TV shows
-- Color-coded output
-- Download statistics
-
-**Usage:**
-```bash
-./batch_download.sh downloads.txt
-```
-
 ### setup.sh
 Installation and setup script.
 
@@ -59,15 +44,10 @@ Installation and setup script.
 Python package dependencies:
 - `requests` - HTTP library for API calls
 - `yt-dlp` - Video downloader (recommended)
-
-### downloads.txt.example
-Example file showing format for batch downloads.
-
-**Format:**
-```
-tv TMDB_ID SEASON EPISODE [OUTPUT_FILE]
-movie TMDB_ID [OUTPUT_FILE]
-```
+- `cloudscraper` - Cloudflare bypass
+- `tmdbsimple` - TMDB API client
+- `tqdm` - Progress bars
+- `rich` - Enhanced progress bars
 
 ## Quick Start
 
@@ -86,11 +66,9 @@ movie TMDB_ID [OUTPUT_FILE]
    ./vixsrc_downloader.py --tv 60625 --season 4 --episode 4
    ```
 
-4. **Batch download:**
+4. **Download entire season:**
    ```bash
-   cp downloads.txt.example downloads.txt
-   # Edit downloads.txt
-   ./batch_download.sh downloads.txt
+   ./vixsrc_downloader.py --tv 60625 --season 4 --parallel 2
    ```
 
 ## Technical Implementation
@@ -173,16 +151,6 @@ Save to File (MP4)
    - Use yt-dlp's `--continue` flag
    - Track partially downloaded files
 
-### Extending the Batch Downloader
-
-Add support for movie lists:
-```bash
-# In batch_download.sh
-elif [ "$TYPE" == "search" ]; then
-    # Implement TMDB search
-fi
-```
-
 ## Troubleshooting
 
 ### Common Issues
@@ -234,22 +202,24 @@ print(f"[DEBUG] Found patterns: {matches}")
 ## Future Enhancements
 
 Potential features to add:
-- [ ] Multi-threaded batch downloads
 - [ ] Resume interrupted downloads
-- [ ] TMDB API integration for metadata
 - [ ] Subtitle extraction
-- [ ] Quality pre-selection
 - [ ] Download queue management
-- [ ] Progress bar for downloads
 - [ ] Web UI interface
-- [ ] Docker container
 - [ ] Automatic retry on failure
 
 ## Version History
 
+**v2.0 - Modular Refactor**
+- Modular package structure
+- Bulk TV downloads (entire seasons/shows)
+- Real-time progress bars (Rich)
+- Search functionality
+- Cloudflare bypass
+- TMDB metadata integration
+
 **v1.0 - Initial Release**
 - Basic movie/TV show download
 - yt-dlp and ffmpeg support
-- Batch download capability
 - Quality selection
 - URL-only mode

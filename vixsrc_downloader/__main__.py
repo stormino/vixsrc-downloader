@@ -55,23 +55,6 @@ Examples:
   # Download with specific quality
   %(prog)s --movie 550 --quality 720
 
-  # Batch download from file
-  %(prog)s --batch downloads.txt --output-dir ./videos
-
-  # Batch download with 3 parallel downloads
-  %(prog)s --batch downloads.txt --parallel 3
-
-Batch file format (one per line):
-  tv TMDB_ID SEASON EPISODE [OUTPUT_FILE] [LANG] [QUALITY]
-  movie TMDB_ID [OUTPUT_FILE] [LANG] [QUALITY]
-
-  Example batch file:
-    # Breaking Bad Season 4
-    tv 60625 4 1 - en 1080
-    tv 60625 4 2 bb_s04e02.mp4 en
-    # Fight Club
-    movie 550 fight_club.mp4 en 720
-
 Note: Get TMDB IDs at https://www.themoviedb.org/
       Get free TMDB API key at https://www.themoviedb.org/settings/api
         """
@@ -82,8 +65,6 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
                               help='TMDB ID for a movie')
     content_group.add_argument('--tv', type=int, metavar='TMDB_ID',
                               help='TMDB ID for a TV show')
-    content_group.add_argument('--batch', type=str, metavar='FILE',
-                              help='Batch download from file')
     content_group.add_argument('--search', type=str, metavar='TERM',
                               help='Search for movies and TV shows by title')
 
@@ -109,7 +90,7 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
     parser.add_argument('--no-metadata', action='store_true',
                        help='Disable TMDB metadata fetching for filenames')
     parser.add_argument('--parallel', '-p', type=int, default=1, metavar='N',
-                       help='Number of parallel downloads for batch mode (default: 1)')
+                       help='Number of parallel downloads for bulk TV downloads (default: 1)')
     parser.add_argument('--ytdlp-concurrency', type=int, default=DEFAULT_YTDLP_CONCURRENCY, metavar='N',
                        help='Number of concurrent fragment downloads for yt-dlp (default: 5)')
 
@@ -120,9 +101,6 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
     # or with both --season and --episode (single episode)
     if args.tv and args.episode is not None and args.season is None:
         parser.error('--episode requires --season')
-
-    if args.batch and args.url_only:
-        parser.error('--url-only cannot be used with --batch mode')
 
     # Handle search mode
     if args.search:
@@ -204,29 +182,6 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
             print("[*] Set TMDB_API_KEY environment variable or use --tmdb-api-key")
             print("[*] Get a free API key at https://www.themoviedb.org/settings/api")
             print()
-
-    # Handle batch download mode
-    if args.batch:
-        batch_downloader = BatchDownloader(downloader, tmdb_metadata)
-
-        # Parse batch file
-        tasks = batch_downloader.parse_batch_file(args.batch)
-
-        if not tasks:
-            print("[!] No valid tasks found in batch file")
-            return 1
-
-        # Download all tasks
-        success_count, failed_count = batch_downloader.download_batch(
-            tasks,
-            output_dir=args.output_dir,
-            parallel_jobs=args.parallel,
-            default_lang=args.lang,
-            default_quality=args.quality
-        )
-
-        # Return non-zero if any downloads failed
-        return 0 if failed_count == 0 else 1
 
     # Handle bulk TV download mode (--tv without episode, or without both season and episode)
     if args.tv and (args.season is None or args.episode is None):

@@ -32,7 +32,7 @@ except ImportError:
 
 @dataclass(frozen=True)
 class DownloadTask:
-    """Represents a single download task from batch file"""
+    """Represents a single download task"""
     content_type: str  # 'tv' or 'movie'
     tmdb_id: int
     season: Optional[int] = None
@@ -49,83 +49,11 @@ class DownloadTask:
 
 
 class BatchDownloader:
-    """Handle batch downloads from a file"""
+    """Handle bulk TV downloads and parallel download orchestration"""
 
     def __init__(self, downloader: VixSrcDownloader, tmdb_metadata: Optional[TMDBMetadata] = None):
         self.downloader = downloader
         self.tmdb_metadata = tmdb_metadata
-
-    def parse_batch_file(self, file_path: str) -> List[DownloadTask]:
-        """Parse batch download file and return list of tasks"""
-        tasks = []
-
-        try:
-            with open(file_path, 'r') as f:
-                for line_num, line in enumerate(f, 1):
-                    line = line.strip()
-
-                    # Skip empty lines and comments
-                    if not line or line.startswith('#'):
-                        continue
-
-                    # Parse line
-                    parts = line.split()
-                    if len(parts) < 2:
-                        print(f"[!] Warning: Invalid format at line {line_num}: {line}")
-                        continue
-
-                    content_type = parts[0].lower()
-
-                    if content_type == 'tv':
-                        # Format: tv TMDB_ID SEASON EPISODE [OUTPUT_FILE] [LANG] [QUALITY]
-                        if len(parts) < 4:
-                            print(f"[!] Warning: Invalid TV format at line {line_num}: {line}")
-                            continue
-
-                        try:
-                            task = DownloadTask(
-                                content_type='tv',
-                                tmdb_id=int(parts[1]),
-                                season=int(parts[2]),
-                                episode=int(parts[3]),
-                                output_file=parts[4] if len(parts) > 4 and parts[4] != '-' else None,
-                                lang=parts[5] if len(parts) > 5 and parts[5] != '-' else None,
-                                quality=parts[6] if len(parts) > 6 and parts[6] != '-' else None,
-                                line_number=line_num
-                            )
-                            tasks.append(task)
-                        except ValueError as e:
-                            print(f"[!] Warning: Invalid values at line {line_num}: {e}")
-                            continue
-
-                    elif content_type == 'movie':
-                        # Format: movie TMDB_ID [OUTPUT_FILE] [LANG] [QUALITY]
-                        try:
-                            task = DownloadTask(
-                                content_type='movie',
-                                tmdb_id=int(parts[1]),
-                                output_file=parts[2] if len(parts) > 2 and parts[2] != '-' else None,
-                                lang=parts[3] if len(parts) > 3 and parts[3] != '-' else None,
-                                quality=parts[4] if len(parts) > 4 and parts[4] != '-' else None,
-                                line_number=line_num
-                            )
-                            tasks.append(task)
-                        except ValueError as e:
-                            print(f"[!] Warning: Invalid values at line {line_num}: {e}")
-                            continue
-
-                    else:
-                        print(f"[!] Warning: Unknown content type at line {line_num}: {content_type}")
-                        continue
-
-        except FileNotFoundError:
-            print(f"[!] Error: File not found: {file_path}")
-            return []
-        except Exception as e:
-            print(f"[!] Error reading file: {e}")
-            return []
-
-        return tasks
 
     def generate_bulk_tv_tasks(
         self,
