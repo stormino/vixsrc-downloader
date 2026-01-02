@@ -42,8 +42,7 @@ class DownloadExecutor:
         self.base_url = base_url
         self.ytdlp_concurrency = ytdlp_concurrency
 
-    def build_ytdlp_command(self, url: str, output: Path, quality: str,
-                           lang: str, show_progress: bool) -> List[str]:
+    def build_ytdlp_command(self, url: str, output: Path, quality: str, lang: str) -> List[str]:
         """
         Build yt-dlp command with appropriate flags.
 
@@ -52,7 +51,6 @@ class DownloadExecutor:
             output: Output path
             quality: Quality setting
             lang: Language code
-            show_progress: Whether to show progress
 
         Returns:
             Command list for subprocess
@@ -77,17 +75,11 @@ class DownloadExecutor:
             '--referer', self.base_url,
             '--add-header', 'Accept: */*',
             '-o', str(output),
+            '--newline',
+            '--no-warnings',
+            '--progress-template', 'download:PROGRESS:%(progress._percent_str)s',
             url
         ]
-
-        if show_progress:
-            cmd.extend([
-                '--newline',
-                '--no-warnings',
-                '--progress-template', 'download:PROGRESS:%(progress._percent_str)s'
-            ])
-        else:
-            cmd.extend(['--progress', '--newline'])
 
         return cmd
 
@@ -134,29 +126,6 @@ class DownloadExecutor:
             tracker.log(f"Exception: {e}", "!")
             tracker.mark_complete(False, f"{output.name} - Error")
             return False
-
-    def execute_simple(self, cmd: List[str], output: Path,
-                      tracker: ProgressTracker) -> bool:
-        """
-        Execute yt-dlp without progress tracking (shows native progress).
-
-        Args:
-            cmd: Command to execute
-            output: Output path
-            tracker: Progress tracker
-
-        Returns:
-            True if successful
-        """
-        try:
-            tracker.log(f"Downloading with yt-dlp to: {output}\n")
-            subprocess.run(cmd, check=True)
-            tracker.log(f"\nDownload completed: {output}", "+")
-            return True
-        except subprocess.CalledProcessError as e:
-            tracker.log(f"\nDownload failed: {e}", "!")
-            return False
-
 
 class VixSrcDownloader:
     """Download videos from vixsrc.to"""
@@ -281,15 +250,8 @@ class VixSrcDownloader:
     def _download_with_ytdlp(self, url: str, output: Path,
                             quality: str, tracker: ProgressTracker) -> bool:
         """Download using yt-dlp with progress tracking"""
-        cmd = self.executor.build_ytdlp_command(
-            url, output, quality, self.lang,
-            show_progress=tracker.has_progress_ui()
-        )
-
-        if tracker.has_progress_ui():
-            return self.executor.execute_with_progress(cmd, output, tracker)
-        else:
-            return self.executor.execute_simple(cmd, output, tracker)
+        cmd = self.executor.build_ytdlp_command(url, output, quality, self.lang)
+        return self.executor.execute_with_progress(cmd, output, tracker)
 
     def _download_with_ffmpeg(self, url: str, output: Path, tracker: ProgressTracker) -> bool:
         """Download using ffmpeg"""

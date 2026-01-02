@@ -22,6 +22,7 @@ ensure_dependency("tqdm")
 ensure_dependency("rich")
 
 
+
 def main():
     parser = argparse.ArgumentParser(
         description='Download videos from vixsrc.to using TMDB IDs',
@@ -281,99 +282,55 @@ Note: Get TMDB IDs at https://www.themoviedb.org/
 
         return 0 if failed_count == 0 else 1
 
-    # Get content info and generate filename
+    # Single movie or TV episode download
+    from .batch import DownloadTask
+
     if args.movie:
         tmdb_id = args.movie
         season = None
         episode = None
-
-        # Try to generate enhanced filename from TMDB metadata
-        if tmdb_metadata and tmdb_metadata.api_key:
-            print(f"[*] Fetching movie metadata from TMDB...")
-            default_output = tmdb_metadata.generate_movie_filename(tmdb_id)
-        else:
-            default_output = f"movie_{tmdb_id}.{DEFAULT_EXTENSION}"
     else:
         tmdb_id = args.tv
         season = args.season
         episode = args.episode
 
-        # Try to generate enhanced filename from TMDB metadata
-        if tmdb_metadata and tmdb_metadata.api_key:
-            print(f"[*] Fetching TV show metadata from TMDB...")
-            default_output = tmdb_metadata.generate_tv_filename(tmdb_id, season, episode)
-        else:
-            default_output = f"tv_{tmdb_id}_s{season:02d}e{episode:02d}.{DEFAULT_EXTENSION}"
-
-    # Get playlist URL
-    print(f"[*] Fetching playlist URL for TMDB ID: {tmdb_id}")
-    if season is not None:
-        print(f"[*] Season: {season}, Episode: {episode}")
-
-    playlist_url = downloader.get_playlist_url(tmdb_id, season, episode)
-
-    if not playlist_url:
-        print("[!] Failed to get playlist URL")
-        return 1
-
-    print(f"\n[+] Playlist URL: {playlist_url}\n")
-
-    # If only URL requested, exit here
+    # Handle --url-only mode
     if args.url_only:
+        print(f"[*] Fetching playlist URL for TMDB ID: {tmdb_id}")
+        if season is not None:
+            print(f"[*] Season: {season}, Episode: {episode}")
+
+        playlist_url = downloader.get_playlist_url(tmdb_id, season, episode)
+
+        if not playlist_url:
+            print("[!] Failed to get playlist URL")
+            return 1
+
+        print(f"\n[+] Playlist URL: {playlist_url}\n")
         return 0
 
-    # Determine output path
-    if args.output:
-        output_path = args.output
-    else:
-        # For TV shows, create show_name/Season XX/ directory structure
-        if args.tv and tmdb_metadata and tmdb_metadata.api_key:
-            from .utils import sanitize_filename
+    # Create a download task
+    task = DownloadTask(
+        content_type='movie' if args.movie else 'tv',
+        tmdb_id=tmdb_id,
+        season=season,
+        episode=episode,
+        output_file=args.output,
+        lang=args.lang,
+        quality=args.quality
+    )
 
-            info = tmdb_metadata.get_tv_info(tmdb_id, season, episode)
-            if info and info.get('show_name'):
-                show_name = info['show_name'].replace(' ', '.')
-                show_name = sanitize_filename(show_name)
+    # Use batch downloader infrastructure (handles everything)
+    batch_downloader = BatchDownloader(downloader, tmdb_metadata)
+    success_count, failed_count = batch_downloader.download_batch(
+        [task],
+        output_dir=args.output_dir,
+        parallel_jobs=1,
+        default_lang=args.lang,
+        default_quality=args.quality
+    )
 
-                # Add year to directory name when not using --output-dir
-                if not args.output_dir and info.get('year'):
-                    show_dir = f"{show_name}.{info['year']}"
-                else:
-                    show_dir = show_name
-
-                season_dir = f"Season {season:02d}"
-
-                # Build path: show_dir/Season XX/filename
-                if args.output_dir:
-                    output_path = os.path.join(args.output_dir, show_dir, season_dir, default_output)
-                else:
-                    output_path = os.path.join(show_dir, season_dir, default_output)
-
-                # Create directory structure
-                os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            else:
-                # Fallback if metadata fetch fails
-                output_path = default_output
-                if args.output_dir:
-                    os.makedirs(args.output_dir, exist_ok=True)
-                    output_path = os.path.join(args.output_dir, default_output)
-        else:
-            # Movies or when no metadata available
-            output_path = default_output
-            if args.output_dir:
-                os.makedirs(args.output_dir, exist_ok=True)
-                output_path = os.path.join(args.output_dir, default_output)
-
-    # Download the video (yt-dlp will show its native progress bar)
-    print(f"[*] Starting download to: {output_path}")
-    success = downloader.download_video(playlist_url, output_path, args.quality)
-
-    if success:
-        print(f"[+] Download completed: {output_path}")
-    else:
-        print(f"[!] Download failed")
-
-    return 0 if success else 1
+    return 0 if failed_count == 0 else 1
 
 
 if __name__ == '__main__':

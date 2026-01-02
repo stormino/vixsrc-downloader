@@ -392,7 +392,9 @@ class BatchDownloader:
         success_count = 0
         failed_count = 0
 
-        print(f"\nVixSrc Batch Downloader - {total} tasks - {parallel_jobs} parallel job(s)\n")
+        # Print header (skip for single downloads)
+        if total > 1:
+            print(f"\nVixSrc Batch Downloader - {total} tasks - {parallel_jobs} parallel job(s)\n")
 
         # Check if Rich is available
         if not Progress:
@@ -458,13 +460,14 @@ class BatchDownloader:
                         else:
                             failed_count += 1
 
-        # Print summary
-        print(f"\n{'='*60}")
-        print(f"Summary")
-        print(f"{'='*60}")
-        print(f"Total:   {total}")
-        print(f"Success: {success_count}")
-        print(f"Failed:  {failed_count}")
-        print(f"{'='*60}\n")
+        # Print summary (skip for single downloads)
+        if total > 1:
+            print(f"\n{'='*60}")
+            print(f"Summary")
+            print(f"{'='*60}")
+            print(f"Total:   {total}")
+            print(f"Success: {success_count}")
+            print(f"Failed:  {failed_count}")
+            print(f"{'='*60}\n")
 
         return success_count, failed_count
